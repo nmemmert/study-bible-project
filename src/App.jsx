@@ -992,7 +992,8 @@ const App = () => {
                   Begin Studying →
                 </button>
               </div>
-            </section>
+            </div>
+          </section>
         ) : (
           <section className="grid gap-8 xl:grid-cols-[260px_1fr]">
             <aside className="rounded-3xl border border-slate-200 bg-white p-6 shadow-panel">
