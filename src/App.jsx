@@ -856,35 +856,24 @@ const App = () => {
 
   const fetchBollsDefinition = async (query) => {
     const encoded = encodeURIComponent(query.trim());
-    const greekUrl = `https://bolls.life/dictionary-definition/BDAG/${encoded}/`;
-    const hebrewUrl = `https://bolls.life/dictionary-definition/BDBT/${encoded}/`;
+    const dictUrl = `https://bolls.life/dictionary-definition/BDBT/${encoded}/`;
 
-    if (isHebrewStrongNumber(query)) {
-      const response = await fetch(hebrewUrl);
+    // Direct Strong's number lookup (G prefix = Greek/Thayer's, H prefix = Hebrew/BDB)
+    if (isGreekStrongNumber(query) || isHebrewStrongNumber(query)) {
+      const response = await fetch(dictUrl);
       if (!response.ok) return null;
       const definitions = await response.json();
       return Array.isArray(definitions) && definitions.length > 0 ? definitions : null;
     }
 
-    // Greek Strong's number or unknown — try BDAG (Greek NT lexicon) first.
-    const greekResponse = await fetch(greekUrl);
-    if (greekResponse.ok) {
-      const greekDefinitions = await greekResponse.json();
-      if (Array.isArray(greekDefinitions) && greekDefinitions.length > 0) {
-        return greekDefinitions;
-      }
-    }
-
-    // English word — try full-text search filtered to Greek entries.
-    if (!isGreekStrongNumber(query)) {
-      const searchResponse = await fetch(`https://bolls.life/search-dictionaries/BDAG/${encoded}/`);
-      if (searchResponse.ok) {
-        const results = await searchResponse.json();
-        const greekResults = Array.isArray(results)
-          ? results.filter((r) => String(r.topic ?? '').startsWith('G'))
-          : [];
-        if (greekResults.length > 0) return [greekResults[0]];
-      }
+    // English word — full-text search, then filter to Greek entries only
+    const searchResponse = await fetch(`https://bolls.life/search-dictionaries/BDBT/${encoded}/`);
+    if (searchResponse.ok) {
+      const results = await searchResponse.json();
+      const greekResults = Array.isArray(results)
+        ? results.filter((r) => String(r.topic ?? '').startsWith('G'))
+        : [];
+      if (greekResults.length > 0) return [greekResults[0]];
     }
 
     return null;
