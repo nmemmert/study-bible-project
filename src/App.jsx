@@ -246,7 +246,7 @@ export function buildExportHtml(project) {
               </div>
             `;
           }
-          if ((word.shortDefinition === 'No definition found.' || word.shortDefinition === 'Lookup failed.') && word.query) {
+          if ((word.shortDefinition === 'No definition found.' || word.shortDefinition === 'Lookup failed.') && !word.lexeme && !word.definitionHtml && word.query) {
             const raw = word.query.trim();
             const normalized = /^\d+$/.test(raw) ? `G${raw}` : raw.toUpperCase();
             const isStrongs = /^G\d+$/.test(normalized);
@@ -1756,7 +1756,7 @@ const App = () => {
                               />
                             </details>
                           ) : null}
-                          {(word.shortDefinition === 'No definition found.' || word.shortDefinition === 'Lookup failed.') && word.query.trim() ? (
+                          {(word.shortDefinition === 'No definition found.' || word.shortDefinition === 'Lookup failed.') && !word.lexeme && !word.definitionHtml && word.query.trim() ? (
                             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
                               <p className="mb-2 text-xs font-semibold text-amber-800">
                                 Not found in BDBT — look it up manually:
