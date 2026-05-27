@@ -41,10 +41,10 @@ const bookOptions = [
   { name: 'Revelation', abbrev: 'REV' },
 ];
 
-const storageKey = (translation, book, chapter) => `bible-study-${translation}-${book}-${chapter}`;
-const makeId = () => crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+export const storageKey = (translation, book, chapter) => `bible-study-${translation}-${book}-${chapter}`;
+export const makeId = () => crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 
-function buildExportHtml(project) {
+export function buildExportHtml(project) {
   const style = `
     body { font-family: Georgia, serif; color: #0f172a; margin: 0; padding: 32px; }
     .page { max-width: 900px; margin: auto; }
@@ -122,7 +122,7 @@ function buildExportHtml(project) {
 </html>`;
 }
 
-function wordTableHtml(rows) {
+export function wordTableHtml(rows) {
   return `
     <table>
       <thead>
@@ -141,7 +141,7 @@ function wordTableHtml(rows) {
   `;
 }
 
-function extractPartOfSpeech(definitionHtml) {
+export function extractPartOfSpeech(definitionHtml) {
   const match = /Part\(s\) of speech:\s*([^<]+)/i.exec(definitionHtml || '');
   if (match && match[1]) {
     return match[1].trim();
@@ -149,7 +149,7 @@ function extractPartOfSpeech(definitionHtml) {
   return '';
 }
 
-function htmlToPlainText(html = '') {
+export function htmlToPlainText(html = '') {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
   const lines = [];
@@ -168,7 +168,7 @@ function htmlToPlainText(html = '') {
   return lines.join('').replace(/\n{2,}/g, '\n').trim();
 }
 
-function createParagraphsFromText(text) {
+export function createParagraphsFromText(text) {
   return text
     .split(/\n+/)
     .map((line) => line.trim())
@@ -176,7 +176,7 @@ function createParagraphsFromText(text) {
     .map((line) => new Paragraph({ children: [new TextRun({ text: line })] }));
 }
 
-function renderVerseContent(content) {
+export function renderVerseContent(content) {
   if (typeof content === 'string') {
     return content;
   }
@@ -198,7 +198,7 @@ function renderVerseContent(content) {
   return '';
 }
 
-function parseBibleChapter(data) {
+export function parseBibleChapter(data) {
   if (data?.verses && Array.isArray(data.verses)) {
     return data.verses.map((verse) => ({
       number: verse.number,
@@ -904,7 +904,7 @@ const App = () => {
                       <span className="text-sm font-medium text-slate-600">Chapter verses</span>
                       <span className="text-xs text-slate-500">Click a verse, then shift-click an end verse.</span>
                     </div>
-                    <div className="max-h-[520px] overflow-y-auto rounded-3xl border border-slate-200 bg-white p-4 scrollbar-thin">
+                    <div data-testid="verse-list" className="max-h-[520px] overflow-y-auto rounded-3xl border border-slate-200 bg-white p-4 scrollbar-thin">
                       {project.verses.map((verse) => {
                         const inRange = rangeStart !== null && (verse.number >= Math.min(rangeStart, rangeEnd) && verse.number <= Math.max(rangeStart, rangeEnd));
                         const inChunk = project.chunks.some((chunk) => verse.number >= chunk.startVerse && verse.number <= chunk.endVerse);
