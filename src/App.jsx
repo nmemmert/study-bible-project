@@ -851,47 +851,57 @@ const App = () => {
     }));
   };
 
+  const isGreekStrongNumber = (query) => /^G\d+$/i.test(query.trim());
+  const isHebrewStrongNumber = (query) => /^H\d+$/i.test(query.trim());
+
+  const fetchBollsDefinition = async (query) => {
+    const encoded = encodeURIComponent(query.trim());
+    const greekUrl = `https://bolls.life/dictionary-definition/BDAG/${encoded}/`;
+    const hebrewUrl = `https://bolls.life/dictionary-definition/BDBT/${encoded}/`;
+
+    if (isHebrewStrongNumber(query)) {
+      const response = await fetch(hebrewUrl);
+      if (!response.ok) return null;
+      const definitions = await response.json();
+      return Array.isArray(definitions) && definitions.length > 0 ? definitions : null;
+    }
+
+    // Greek Strong's number or unknown — try BDAG (Greek NT lexicon) first.
+    const greekResponse = await fetch(greekUrl);
+    if (greekResponse.ok) {
+      const greekDefinitions = await greekResponse.json();
+      if (Array.isArray(greekDefinitions) && greekDefinitions.length > 0) {
+        return greekDefinitions;
+      }
+    }
+
+    // English word — try full-text search filtered to Greek entries.
+    if (!isGreekStrongNumber(query)) {
+      const searchResponse = await fetch(`https://bolls.life/search-dictionaries/BDAG/${encoded}/`);
+      if (searchResponse.ok) {
+        const results = await searchResponse.json();
+        const greekResults = Array.isArray(results)
+          ? results.filter((r) => String(r.topic ?? '').startsWith('G'))
+          : [];
+        if (greekResults.length > 0) return [greekResults[0]];
+      }
+    }
+
+    return null;
+  };
+
   const lookupGreekWord = async (chunkId, wordId) => {
     const chunk = allChunks.find((c) => c.id === chunkId);
     const word = chunk?.greekWords.find((w) => w.id === wordId);
     if (!word || !word.query.trim()) return;
     updateChunkWord(chunkId, wordId, { loading: true });
     try {
+      // Normalize bare numbers to G prefix: "4102" → "G4102" (Greek, not Hebrew H4102).
       const raw = word.query.trim();
+      const normalized = /^\d+$/.test(raw) ? `G${raw}` : /^[gGhH]\d+$/.test(raw) ? raw.toUpperCase() : raw;
 
-      // Normalize Strong's numbers to always use the G prefix for Greek.
-      // A bare number like "4102" would otherwise match Hebrew H4102.
-      let normalized;
-      if (/^\d+$/.test(raw)) {
-        normalized = `G${raw}`;
-      } else if (/^[gGhH]\d+$/.test(raw)) {
-        normalized = raw.toUpperCase();
-      } else {
-        normalized = raw;
-      }
-
-      const isStrongsNumber = /^[GH]\d+$/.test(normalized);
-      const encoded = encodeURIComponent(normalized);
-
-      let definitions;
-      if (isStrongsNumber) {
-        // Direct Strong's number lookup in the combined Greek/Hebrew dictionary.
-        const response = await fetch(`https://bolls.life/dictionary-definition/BDBT/${encoded}/`);
-        if (!response.ok) throw new Error('Lookup failed.');
-        definitions = await response.json();
-      } else {
-        // English word search — use the search-dictionaries endpoint.
-        // Filter results to Greek entries only (topic starts with G).
-        const response = await fetch(`https://bolls.life/search-dictionaries/BDBT/${encoded}/`);
-        if (!response.ok) throw new Error('Lookup failed.');
-        const results = await response.json();
-        const greekResults = Array.isArray(results)
-          ? results.filter((r) => String(r.topic ?? '').startsWith('G'))
-          : [];
-        definitions = greekResults.length > 0 ? [greekResults[0]] : [];
-      }
-
-      if (!Array.isArray(definitions) || definitions.length === 0) {
+      const definitions = await fetchBollsDefinition(normalized);
+      if (!definitions || definitions.length === 0) {
         updateChunkWord(chunkId, wordId, {
           strongNumber: '',
           shortDefinition: 'No definition found.',

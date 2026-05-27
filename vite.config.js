@@ -3,6 +3,10 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  server: {
+    host: true,
+    allowedHosts: ['study.necloud.us', 'localhost', 'study.versebyversewithnate.us'],
+  },
   test: {
     environment: 'jsdom',
     globals: true,
