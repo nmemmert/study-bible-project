@@ -857,10 +857,40 @@ const App = () => {
     if (!word || !word.query.trim()) return;
     updateChunkWord(chunkId, wordId, { loading: true });
     try {
-      const query = encodeURIComponent(word.query.trim());
-      const response = await fetch(`https://bolls.life/dictionary-definition/BDBT/${query}/`);
-      if (!response.ok) throw new Error('Lookup failed.');
-      const definitions = await response.json();
+      const raw = word.query.trim();
+
+      // Normalize Strong's numbers to always use the G prefix for Greek.
+      // A bare number like "4102" would otherwise match Hebrew H4102.
+      let normalized;
+      if (/^\d+$/.test(raw)) {
+        normalized = `G${raw}`;
+      } else if (/^[gGhH]\d+$/.test(raw)) {
+        normalized = raw.toUpperCase();
+      } else {
+        normalized = raw;
+      }
+
+      const isStrongsNumber = /^[GH]\d+$/.test(normalized);
+      const encoded = encodeURIComponent(normalized);
+
+      let definitions;
+      if (isStrongsNumber) {
+        // Direct Strong's number lookup in the combined Greek/Hebrew dictionary.
+        const response = await fetch(`https://bolls.life/dictionary-definition/BDBT/${encoded}/`);
+        if (!response.ok) throw new Error('Lookup failed.');
+        definitions = await response.json();
+      } else {
+        // English word search — use the search-dictionaries endpoint.
+        // Filter results to Greek entries only (topic starts with G).
+        const response = await fetch(`https://bolls.life/search-dictionaries/BDBT/${encoded}/`);
+        if (!response.ok) throw new Error('Lookup failed.');
+        const results = await response.json();
+        const greekResults = Array.isArray(results)
+          ? results.filter((r) => String(r.topic ?? '').startsWith('G'))
+          : [];
+        definitions = greekResults.length > 0 ? [greekResults[0]] : [];
+      }
+
       if (!Array.isArray(definitions) || definitions.length === 0) {
         updateChunkWord(chunkId, wordId, {
           strongNumber: '',
@@ -872,7 +902,7 @@ const App = () => {
       const first = definitions[0];
       const extractedPartOfSpeech = extractPartOfSpeech(first.definition || '');
       updateChunkWord(chunkId, wordId, {
-        strongNumber: first.topic || word.query,
+        strongNumber: first.topic || normalized,
         lexeme: first.lexeme || '',
         transliteration: first.transliteration || '',
         partOfSpeech: extractedPartOfSpeech || word.partOfSpeech || '',
@@ -1607,7 +1637,7 @@ const App = () => {
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') { e.preventDefault(); lookupGreekWord(selectedChunk.id, word.id); }
                                 }}
-                                placeholder="G4102 or faith"
+                                placeholder="G4102, 4102, or faith (Greek)"
                                 className="mt-2 block w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
                               />
                             </label>
