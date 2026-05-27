@@ -60,8 +60,29 @@ else
 fi
 
 # ── Launch ────────────────────────────────────────────────────────────────────
+PID_FILE="$(dirname "$0")/.vite.pid"
+LOG_FILE="$(dirname "$0")/.vite.log"
+
+# Stop any previously started instance
+if [ -f "$PID_FILE" ]; then
+  OLD_PID=$(cat "$PID_FILE")
+  if kill -0 "$OLD_PID" 2>/dev/null; then
+    echo "Stopping previous server (PID $OLD_PID)..."
+    kill "$OLD_PID"
+    sleep 1
+  fi
+  rm -f "$PID_FILE"
+fi
+
 echo ""
-echo "Starting dev server on http://localhost:$PORT"
-echo "(Press Ctrl+C to stop)"
+echo "Starting dev server in the background on http://localhost:$PORT"
+echo "Logs: $LOG_FILE"
 echo ""
-exec npx vite --port "$PORT" --host
+
+nohup npx vite --port "$PORT" --host > "$LOG_FILE" 2>&1 &
+echo $! > "$PID_FILE"
+
+echo "Server PID: $(cat "$PID_FILE")"
+echo ""
+echo "To stop the server:  kill \$(cat .vite.pid)"
+echo "To view logs:        tail -f .vite.log"
