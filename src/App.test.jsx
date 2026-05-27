@@ -62,6 +62,7 @@ afterEach(() => {
 async function loadChapter() {
   const user = userEvent.setup();
   render(<App />);
+  await user.click(screen.getAllByRole('button', { name: /new project/i })[0]);
   await user.click(screen.getByRole('button', { name: /load chapter/i }));
   await screen.findByText(/Scripture & Chunks/i);
   return user;
@@ -97,14 +98,33 @@ function findChunkCounter(n, total) {
 // Initial render
 // ---------------------------------------------------------------------------
 describe('Initial render', () => {
-  test('shows the project setup form', () => {
+  test('shows the home page with "My Studies" heading', () => {
     render(<App />);
+    expect(screen.getByText('My Studies')).toBeInTheDocument();
+  });
+
+  test('shows "No projects yet" when storage is empty', () => {
+    render(<App />);
+    expect(screen.getByText(/no projects yet/i)).toBeInTheDocument();
+  });
+
+  test('shows "New Project" button on home page', () => {
+    render(<App />);
+    expect(screen.getAllByRole('button', { name: /new project/i }).length).toBeGreaterThan(0);
+  });
+
+  test('clicking "New Project" shows the project setup form', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getAllByRole('button', { name: /new project/i })[0]);
     expect(screen.getByText('Project Setup')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /load chapter/i })).toBeInTheDocument();
   });
 
-  test('shows translation, book, and chapter inputs', () => {
+  test('setup form shows translation, book, and chapter inputs', async () => {
+    const user = userEvent.setup();
     render(<App />);
+    await user.click(screen.getAllByRole('button', { name: /new project/i })[0]);
     expect(screen.getByText('Translation')).toBeInTheDocument();
     expect(screen.getByText('Book')).toBeInTheDocument();
     expect(screen.getByText('Chapter')).toBeInTheDocument();
@@ -139,6 +159,7 @@ describe('Loading a chapter', () => {
     }));
     const user = userEvent.setup();
     render(<App />);
+    await user.click(screen.getAllByRole('button', { name: /new project/i })[0]);
     await user.click(screen.getByRole('button', { name: /load chapter/i }));
     await screen.findByText(/unable to load chapter/i);
   });
@@ -147,8 +168,10 @@ describe('Loading a chapter', () => {
     vi.stubGlobal('fetch', buildFetchMock({ chapterData: { chapter: { content: [] } } }));
     const user = userEvent.setup();
     render(<App />);
+    await user.click(screen.getAllByRole('button', { name: /new project/i })[0]);
     await user.click(screen.getByRole('button', { name: /load chapter/i }));
     await screen.findByText(/invalid bible data/i);
+
   });
 });
 

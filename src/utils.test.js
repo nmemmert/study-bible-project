@@ -9,6 +9,8 @@ import {
   buildExportHtml,
   buildClaudePrompt,
   createParagraphsFromText,
+  migrateChunk,
+  migrateProject,
 } from './App.jsx';
 
 // ---------------------------------------------------------------------------
@@ -249,33 +251,109 @@ describe('wordTableHtml', () => {
 });
 
 // ---------------------------------------------------------------------------
+// migrateChunk
+// ---------------------------------------------------------------------------
+describe('migrateChunk', () => {
+  test('converts notes → observation and adds OIA/crossRef fields', () => {
+    const old = { id: 'c1', startVerse: 1, endVerse: 2, notes: 'My notes.', greekWords: [] };
+    const result = migrateChunk(old);
+    expect(result.observation).toBe('My notes.');
+    expect(result.interpretation).toBe('');
+    expect(result.application).toBe('');
+    expect(result.crossReferences).toEqual([]);
+  });
+
+  test('is a no-op when chunk already has observation field', () => {
+    const modern = { id: 'c1', startVerse: 1, endVerse: 1, observation: 'Already migrated.', interpretation: '', application: '', crossReferences: [], greekWords: [] };
+    expect(migrateChunk(modern)).toBe(modern);
+  });
+
+  test('handles missing notes gracefully', () => {
+    const chunk = { id: 'c1', startVerse: 1, endVerse: 1, greekWords: [] };
+    expect(migrateChunk(chunk).observation).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// migrateProject
+// ---------------------------------------------------------------------------
+describe('migrateProject', () => {
+  test('wraps old flat project into chapters array', () => {
+    const old = {
+      title: 'Test',
+      translation: 'BSB',
+      book: 'Titus',
+      bookAbbrev: 'TIT',
+      chapter: '1',
+      verses: [{ number: 1, text: 'Hello.' }],
+      chunks: [{ id: 'c1', startVerse: 1, endVerse: 1, notes: 'Note.', greekWords: [] }],
+    };
+    const result = migrateProject(old);
+    expect(Array.isArray(result.chapters)).toBe(true);
+    expect(result.chapters).toHaveLength(1);
+    expect(result.chapters[0].book).toBe('Titus');
+    expect(result.chapters[0].chunks[0].observation).toBe('Note.');
+  });
+
+  test('preserves chapters array if already new format', () => {
+    const modern = {
+      id: 'p1',
+      title: 'Test',
+      translation: 'BSB',
+      chapters: [{
+        book: 'Titus', bookAbbrev: 'TIT', chapter: '1',
+        verses: [], chunks: [{ id: 'c1', startVerse: 1, endVerse: 1, observation: 'x', interpretation: '', application: '', crossReferences: [], greekWords: [] }],
+      }],
+    };
+    const result = migrateProject(modern);
+    expect(result.chapters).toHaveLength(1);
+    expect(result.chapters[0].chunks[0].observation).toBe('x');
+  });
+
+  test('returns null for null input', () => {
+    expect(migrateProject(null)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // buildExportHtml
 // ---------------------------------------------------------------------------
+const baseChunk = {
+  id: 'chunk-1',
+  startVerse: 1,
+  endVerse: 2,
+  observation: 'Key observations.',
+  interpretation: 'Theological meaning.',
+  application: 'Live it out.',
+  crossReferences: ['John 1:1'],
+  greekWords: [
+    {
+      strongNumber: 'G1401',
+      lexeme: 'δοῦλος',
+      transliteration: 'doulos',
+      partOfSpeech: 'Noun',
+      shortDefinition: 'a slave',
+      definitionHtml: '<p>Part(s) of speech: Noun</p><p>A slave or servant.</p>',
+    },
+  ],
+};
+
 const baseProject = {
+  id: 'test-project-1',
   title: 'Titus 1 Study',
   translation: 'BSB',
-  book: 'Titus',
-  chapter: '1',
-  verses: [
-    { number: 1, text: 'Paul, a servant of God.' },
-    { number: 2, text: 'In hope of eternal life.' },
-  ],
-  chunks: [
+  lastEdited: 1700000000000,
+  selectedChunkId: 'chunk-1',
+  chapters: [
     {
-      id: 'chunk-1',
-      startVerse: 1,
-      endVerse: 2,
-      notes: 'Key observations.',
-      greekWords: [
-        {
-          strongNumber: 'G1401',
-          lexeme: 'δοῦλος',
-          transliteration: 'doulos',
-          partOfSpeech: 'Noun',
-          shortDefinition: 'a slave',
-          definitionHtml: '<p>Part(s) of speech: Noun</p><p>A slave or servant.</p>',
-        },
+      book: 'Titus',
+      bookAbbrev: 'TIT',
+      chapter: '1',
+      verses: [
+        { number: 1, text: 'Paul, a servant of God.' },
+        { number: 2, text: 'In hope of eternal life.' },
       ],
+      chunks: [baseChunk],
     },
   ],
 };
@@ -305,8 +383,15 @@ describe('buildExportHtml', () => {
     expect(html).toContain('In hope of eternal life.');
   });
 
-  test('includes study notes', () => {
-    expect(buildExportHtml(baseProject)).toContain('Key observations.');
+  test('includes OIA notes', () => {
+    const html = buildExportHtml(baseProject);
+    expect(html).toContain('Key observations.');
+    expect(html).toContain('Theological meaning.');
+    expect(html).toContain('Live it out.');
+  });
+
+  test('includes cross-references', () => {
+    expect(buildExportHtml(baseProject)).toContain('John 1:1');
   });
 
   test('includes Greek word data', () => {
@@ -320,7 +405,7 @@ describe('buildExportHtml', () => {
   test('formats a single-verse reference without a range dash', () => {
     const project = {
       ...baseProject,
-      chunks: [{ ...baseProject.chunks[0], startVerse: 1, endVerse: 1 }],
+      chapters: [{ ...baseProject.chapters[0], chunks: [{ ...baseChunk, startVerse: 1, endVerse: 1 }] }],
     };
     const html = buildExportHtml(project);
     expect(html).toContain('Titus 1:1');
@@ -331,18 +416,27 @@ describe('buildExportHtml', () => {
     expect(buildExportHtml(baseProject)).toContain('Titus 1:1-2');
   });
 
-  test('shows "No notes." when chunk notes are empty', () => {
-    const project = { ...baseProject, chunks: [{ ...baseProject.chunks[0], notes: '' }] };
-    expect(buildExportHtml(project)).toContain('No notes.');
+  test('shows "No observation." when chunk observation is empty', () => {
+    const project = {
+      ...baseProject,
+      chapters: [{ ...baseProject.chapters[0], chunks: [{ ...baseChunk, observation: '', interpretation: '', application: '' }] }],
+    };
+    expect(buildExportHtml(project)).toContain('No observation.');
   });
 
   test('shows "No Greek word notes." when chunk has no Greek words', () => {
-    const project = { ...baseProject, chunks: [{ ...baseProject.chunks[0], greekWords: [] }] };
+    const project = {
+      ...baseProject,
+      chapters: [{ ...baseProject.chapters[0], chunks: [{ ...baseChunk, greekWords: [] }] }],
+    };
     expect(buildExportHtml(project)).toContain('No Greek word notes.');
   });
 
   test('handles a project with no chunks', () => {
-    const project = { ...baseProject, chunks: [] };
+    const project = {
+      ...baseProject,
+      chapters: [{ ...baseProject.chapters[0], chunks: [] }],
+    };
     const html = buildExportHtml(project);
     expect(html).toContain('<!DOCTYPE html>');
     expect(html).toContain('Titus 1 Study');
@@ -351,12 +445,15 @@ describe('buildExportHtml', () => {
   test('only includes verses that fall within the chunk range', () => {
     const project = {
       ...baseProject,
-      verses: [
-        { number: 1, text: 'Verse one text.' },
-        { number: 2, text: 'Verse two text.' },
-        { number: 3, text: 'Verse three text.' },
-      ],
-      chunks: [{ ...baseProject.chunks[0], startVerse: 2, endVerse: 2, greekWords: [] }],
+      chapters: [{
+        ...baseProject.chapters[0],
+        verses: [
+          { number: 1, text: 'Verse one text.' },
+          { number: 2, text: 'Verse two text.' },
+          { number: 3, text: 'Verse three text.' },
+        ],
+        chunks: [{ ...baseChunk, startVerse: 2, endVerse: 2, greekWords: [] }],
+      }],
     };
     const html = buildExportHtml(project);
     expect(html).toContain('Verse two text.');
@@ -407,8 +504,15 @@ describe('buildClaudePrompt', () => {
     expect(prompt).toContain('In hope of eternal life.');
   });
 
-  test('includes study notes', () => {
-    expect(buildClaudePrompt(baseProject)).toContain('Key observations.');
+  test('includes OIA notes', () => {
+    const prompt = buildClaudePrompt(baseProject);
+    expect(prompt).toContain('Key observations.');
+    expect(prompt).toContain('Theological meaning.');
+    expect(prompt).toContain('Live it out.');
+  });
+
+  test('includes cross-references', () => {
+    expect(buildClaudePrompt(baseProject)).toContain('John 1:1');
   });
 
   test('includes Greek word data', () => {
@@ -422,10 +526,13 @@ describe('buildClaudePrompt', () => {
   test('numbers each chunk sequentially', () => {
     const multiChunkProject = {
       ...baseProject,
-      chunks: [
-        { ...baseProject.chunks[0], id: 'c1', startVerse: 1, endVerse: 1 },
-        { ...baseProject.chunks[0], id: 'c2', startVerse: 2, endVerse: 2, notes: 'Second chunk notes.', greekWords: [] },
-      ],
+      chapters: [{
+        ...baseProject.chapters[0],
+        chunks: [
+          { ...baseChunk, id: 'c1', startVerse: 1, endVerse: 1 },
+          { ...baseChunk, id: 'c2', startVerse: 2, endVerse: 2, observation: 'Second chunk notes.', greekWords: [] },
+        ],
+      }],
     };
     const prompt = buildClaudePrompt(multiChunkProject);
     expect(prompt).toContain('CHUNK 1');
@@ -435,7 +542,7 @@ describe('buildClaudePrompt', () => {
   test('formats a single-verse reference without a dash', () => {
     const project = {
       ...baseProject,
-      chunks: [{ ...baseProject.chunks[0], startVerse: 1, endVerse: 1 }],
+      chapters: [{ ...baseProject.chapters[0], chunks: [{ ...baseChunk, startVerse: 1, endVerse: 1 }] }],
     };
     const prompt = buildClaudePrompt(project);
     expect(prompt).toContain('Titus 1:1');
@@ -447,25 +554,34 @@ describe('buildClaudePrompt', () => {
     expect(prompt).toContain('Titus 1:1–2');
   });
 
-  test('shows "No notes." when chunk notes are empty', () => {
-    const project = { ...baseProject, chunks: [{ ...baseProject.chunks[0], notes: '' }] };
-    expect(buildClaudePrompt(project)).toContain('No notes.');
+  test('shows "No observation." when chunk observation is empty', () => {
+    const project = {
+      ...baseProject,
+      chapters: [{ ...baseProject.chapters[0], chunks: [{ ...baseChunk, observation: '', interpretation: '', application: '' }] }],
+    };
+    expect(buildClaudePrompt(project)).toContain('No observation.');
   });
 
   test('shows "None." when chunk has no Greek words', () => {
-    const project = { ...baseProject, chunks: [{ ...baseProject.chunks[0], greekWords: [] }] };
+    const project = {
+      ...baseProject,
+      chapters: [{ ...baseProject.chapters[0], chunks: [{ ...baseChunk, greekWords: [] }] }],
+    };
     expect(buildClaudePrompt(project)).toContain('None.');
   });
 
   test('only includes verses within the chunk range', () => {
     const project = {
       ...baseProject,
-      verses: [
-        { number: 1, text: 'Verse one.' },
-        { number: 2, text: 'Verse two.' },
-        { number: 3, text: 'Verse three.' },
-      ],
-      chunks: [{ ...baseProject.chunks[0], startVerse: 2, endVerse: 2, greekWords: [] }],
+      chapters: [{
+        ...baseProject.chapters[0],
+        verses: [
+          { number: 1, text: 'Verse one.' },
+          { number: 2, text: 'Verse two.' },
+          { number: 3, text: 'Verse three.' },
+        ],
+        chunks: [{ ...baseChunk, startVerse: 2, endVerse: 2, greekWords: [] }],
+      }],
     };
     const prompt = buildClaudePrompt(project);
     expect(prompt).toContain('Verse two.');
