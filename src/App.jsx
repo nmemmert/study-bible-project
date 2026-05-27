@@ -237,13 +237,32 @@ export function buildExportHtml(project) {
       `).join('');
       const greekTable = wordTableHtml(greekRows);
       const extendedDefinitions = chunk.greekWords
-        .filter((word) => word.definitionHtml)
-        .map((word) => `
-          <div class="definition-block">
-            <p><strong>${word.strongNumber} — ${word.lexeme || ''}</strong></p>
-            <div class="definition">${word.definitionHtml}</div>
-          </div>
-        `)
+        .map((word) => {
+          if (word.definitionHtml) {
+            return `
+              <div class="definition-block">
+                <p><strong>${word.strongNumber} — ${word.lexeme || ''}</strong></p>
+                <div class="definition">${word.definitionHtml}</div>
+              </div>
+            `;
+          }
+          if ((word.shortDefinition === 'No definition found.' || word.shortDefinition === 'Lookup failed.') && word.query) {
+            const raw = word.query.trim();
+            const normalized = /^\d+$/.test(raw) ? `G${raw}` : raw.toUpperCase();
+            const isStrongs = /^G\d+$/.test(normalized);
+            const num = isStrongs ? normalized.slice(1) : null;
+            const links = isStrongs && num
+              ? `<a href="https://biblehub.com/greek/${num}.htm">BibleHub</a> · <a href="https://www.blueletterbible.org/lexicon/g${num}/esv/0-1/">Blue Letter Bible</a> · <a href="https://www.studylight.org/lexicons/eng/greek/${num}.html">StudyLight</a>`
+              : `<a href="https://biblehub.com/search.php?q=${encodeURIComponent(raw)}">BibleHub</a> · <a href="https://www.blueletterbible.org/search/search.cfm?Criteria=${encodeURIComponent(raw)}&t=KJV#s=s_lexiconc">Blue Letter Bible</a>`;
+            return `
+              <div class="definition-block" style="border-color:#fcd34d;background:#fffbeb;">
+                <p><strong>${raw}</strong> — definition not found in auto-lookup</p>
+                <p style="margin-top:0.5rem;font-size:0.9rem;">Look it up manually: ${links}</p>
+              </div>
+            `;
+          }
+          return '';
+        })
         .join('');
 
       return `
@@ -853,6 +872,25 @@ const App = () => {
 
   const isGreekStrongNumber = (query) => /^G\d+$/i.test(query.trim());
   const isHebrewStrongNumber = (query) => /^H\d+$/i.test(query.trim());
+
+  const externalLookupLinks = (query) => {
+    const raw = query.trim();
+    const normalized = /^\d+$/.test(raw) ? `G${raw}` : raw.toUpperCase();
+    const isStrongs = /^G\d+$/.test(normalized);
+    const num = isStrongs ? normalized.slice(1) : null;
+    if (isStrongs && num) {
+      return [
+        { label: 'BibleHub', url: `https://biblehub.com/greek/${num}.htm` },
+        { label: 'Blue Letter Bible', url: `https://www.blueletterbible.org/lexicon/g${num}/esv/0-1/` },
+        { label: 'StudyLight', url: `https://www.studylight.org/lexicons/eng/greek/${num}.html` },
+      ];
+    }
+    const enc = encodeURIComponent(raw);
+    return [
+      { label: 'BibleHub', url: `https://biblehub.com/search.php?q=${enc}` },
+      { label: 'Blue Letter Bible', url: `https://www.blueletterbible.org/search/search.cfm?Criteria=${enc}&t=KJV#s=s_lexiconc` },
+    ];
+  };
 
   const fetchBollsDefinition = async (query) => {
     const isGreek = isGreekStrongNumber(query);
@@ -1717,6 +1755,33 @@ const App = () => {
                                 dangerouslySetInnerHTML={{ __html: word.definitionHtml }}
                               />
                             </details>
+                          ) : null}
+                          {(word.shortDefinition === 'No definition found.' || word.shortDefinition === 'Lookup failed.') && word.query.trim() ? (
+                            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                              <p className="mb-2 text-xs font-semibold text-amber-800">
+                                Not found in BDBT — look it up manually:
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                {externalLookupLinks(word.query).map(({ label, url }) => (
+                                  <a
+                                    key={label}
+                                    href={url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="rounded-lg border border-amber-300 bg-white px-3 py-1 text-xs font-medium text-amber-900 transition hover:bg-amber-100"
+                                  >
+                                    {label} ↗
+                                  </a>
+                                ))}
+                                <button
+                                  type="button"
+                                  onClick={() => navigator.clipboard.writeText(word.query.trim())}
+                                  className="rounded-lg border border-amber-300 bg-white px-3 py-1 text-xs font-medium text-amber-900 transition hover:bg-amber-100"
+                                >
+                                  Copy "{word.query.trim()}"
+                                </button>
+                              </div>
+                            </div>
                           ) : null}
                         </div>
                       ))
