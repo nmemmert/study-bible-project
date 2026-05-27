@@ -198,6 +198,69 @@ export function renderVerseContent(content) {
   return '';
 }
 
+export function buildClaudePrompt(project) {
+  const header = `I've prepared a Bible study on ${project.book} ${project.chapter} (${project.translation}) and need your help turning my notes into a polished study guide.
+
+Below is my work organised by passage chunk, including my study notes and Greek word research. Please create a clear, structured study guide that:
+- Synthesises my notes into coherent teaching points
+- Naturally integrates the Greek word insights
+- Includes 2–3 reflection questions per chunk
+- Preserves the passage-by-passage structure
+
+---
+
+PROJECT: ${project.title}
+TRANSLATION: ${project.translation}
+PASSAGE: ${project.book} ${project.chapter}
+
+`;
+
+  const chunks = project.chunks.map((chunk, index) => {
+    const ref = chunk.startVerse === chunk.endVerse
+      ? `${project.book} ${project.chapter}:${chunk.startVerse}`
+      : `${project.book} ${project.chapter}:${chunk.startVerse}–${chunk.endVerse}`;
+
+    const verses = project.verses
+      .filter((v) => v.number >= chunk.startVerse && v.number <= chunk.endVerse)
+      .map((v) => `${v.number} ${v.text}`)
+      .join('\n');
+
+    const notes = chunk.notes.trim() || 'No notes.';
+
+    const greekWords = chunk.greekWords.length === 0
+      ? 'None.'
+      : chunk.greekWords.map((word) => {
+          const summary = [
+            word.strongNumber,
+            word.lexeme,
+            word.transliteration && `(${word.transliteration})`,
+            word.partOfSpeech,
+            word.shortDefinition,
+          ].filter(Boolean).join(' | ');
+          const definition = word.definitionHtml
+            ? `\n  ${htmlToPlainText(word.definitionHtml)}`
+            : '';
+          return `• ${summary}${definition}`;
+        }).join('\n');
+
+    return `===
+
+CHUNK ${index + 1} — ${ref}
+
+Scripture:
+${verses}
+
+My Notes:
+${notes}
+
+Greek Words:
+${greekWords}
+`;
+  }).join('\n');
+
+  return header + chunks;
+}
+
 export function parseBibleChapter(data) {
   if (data?.verses && Array.isArray(data.verses)) {
     return data.verses.map((verse) => ({
@@ -671,6 +734,15 @@ const App = () => {
     URL.revokeObjectURL(url);
   };
 
+  const copyForClaude = () => {
+    if (!project) return;
+    const prompt = buildClaudePrompt(project);
+    navigator.clipboard.writeText(prompt).then(() => {
+      setSaveStatus('Copied for Claude!');
+      window.setTimeout(() => setSaveStatus(''), 2000);
+    });
+  };
+
   const verseLabel = (start, end) => (start === end ? `${start}` : `${start}-${end}`);
 
   return (
@@ -710,6 +782,14 @@ const App = () => {
             )}
             {project && (
               <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={copyForClaude}
+                  disabled={project.chunks.length === 0}
+                  className="rounded-md bg-violet-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:bg-slate-500"
+                >
+                  Prepare for Claude
+                </button>
                 <button
                   type="button"
                   onClick={exportChapter}

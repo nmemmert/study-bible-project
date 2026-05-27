@@ -7,6 +7,7 @@ import {
   parseBibleChapter,
   wordTableHtml,
   buildExportHtml,
+  buildClaudePrompt,
   createParagraphsFromText,
 } from './App.jsx';
 
@@ -386,5 +387,89 @@ describe('createParagraphsFromText', () => {
   test('trims whitespace from each line', () => {
     const result = createParagraphsFromText('  hello  \n  world  ');
     expect(result).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildClaudePrompt
+// ---------------------------------------------------------------------------
+describe('buildClaudePrompt', () => {
+  test('includes project title, translation, and passage', () => {
+    const prompt = buildClaudePrompt(baseProject);
+    expect(prompt).toContain('Titus 1 Study');
+    expect(prompt).toContain('BSB');
+    expect(prompt).toContain('Titus 1');
+  });
+
+  test('includes scripture verse text for the chunk range', () => {
+    const prompt = buildClaudePrompt(baseProject);
+    expect(prompt).toContain('Paul, a servant of God.');
+    expect(prompt).toContain('In hope of eternal life.');
+  });
+
+  test('includes study notes', () => {
+    expect(buildClaudePrompt(baseProject)).toContain('Key observations.');
+  });
+
+  test('includes Greek word data', () => {
+    const prompt = buildClaudePrompt(baseProject);
+    expect(prompt).toContain('G1401');
+    expect(prompt).toContain('δοῦλος');
+    expect(prompt).toContain('doulos');
+    expect(prompt).toContain('a slave');
+  });
+
+  test('numbers each chunk sequentially', () => {
+    const multiChunkProject = {
+      ...baseProject,
+      chunks: [
+        { ...baseProject.chunks[0], id: 'c1', startVerse: 1, endVerse: 1 },
+        { ...baseProject.chunks[0], id: 'c2', startVerse: 2, endVerse: 2, notes: 'Second chunk notes.', greekWords: [] },
+      ],
+    };
+    const prompt = buildClaudePrompt(multiChunkProject);
+    expect(prompt).toContain('CHUNK 1');
+    expect(prompt).toContain('CHUNK 2');
+  });
+
+  test('formats a single-verse reference without a dash', () => {
+    const project = {
+      ...baseProject,
+      chunks: [{ ...baseProject.chunks[0], startVerse: 1, endVerse: 1 }],
+    };
+    const prompt = buildClaudePrompt(project);
+    expect(prompt).toContain('Titus 1:1');
+    expect(prompt).not.toContain('Titus 1:1–1');
+  });
+
+  test('formats a multi-verse reference with an en-dash', () => {
+    const prompt = buildClaudePrompt(baseProject);
+    expect(prompt).toContain('Titus 1:1–2');
+  });
+
+  test('shows "No notes." when chunk notes are empty', () => {
+    const project = { ...baseProject, chunks: [{ ...baseProject.chunks[0], notes: '' }] };
+    expect(buildClaudePrompt(project)).toContain('No notes.');
+  });
+
+  test('shows "None." when chunk has no Greek words', () => {
+    const project = { ...baseProject, chunks: [{ ...baseProject.chunks[0], greekWords: [] }] };
+    expect(buildClaudePrompt(project)).toContain('None.');
+  });
+
+  test('only includes verses within the chunk range', () => {
+    const project = {
+      ...baseProject,
+      verses: [
+        { number: 1, text: 'Verse one.' },
+        { number: 2, text: 'Verse two.' },
+        { number: 3, text: 'Verse three.' },
+      ],
+      chunks: [{ ...baseProject.chunks[0], startVerse: 2, endVerse: 2, greekWords: [] }],
+    };
+    const prompt = buildClaudePrompt(project);
+    expect(prompt).toContain('Verse two.');
+    expect(prompt).not.toContain('Verse one.');
+    expect(prompt).not.toContain('Verse three.');
   });
 });
