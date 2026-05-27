@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: true,
-    allowedHosts: ['study.necloud.us'],
+    allowedHosts: ['study.necloud.us', 'localhost', 'study.versebyversewithnate.us'],
   },
   test: {
     environment: 'jsdom',
