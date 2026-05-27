@@ -866,6 +866,7 @@ const App = () => {
       return Array.isArray(definitions) && definitions.length > 0 ? definitions : null;
     }
 
+    // Greek Strong's number or unknown — try BDAG (Greek NT lexicon) first.
     const greekResponse = await fetch(greekUrl);
     if (greekResponse.ok) {
       const greekDefinitions = await greekResponse.json();
@@ -874,10 +875,19 @@ const App = () => {
       }
     }
 
-    const hebrewResponse = await fetch(hebrewUrl);
-    if (!hebrewResponse.ok) return null;
-    const hebrewDefinitions = await hebrewResponse.json();
-    return Array.isArray(hebrewDefinitions) && hebrewDefinitions.length > 0 ? hebrewDefinitions : null;
+    // English word — try full-text search filtered to Greek entries.
+    if (!isGreekStrongNumber(query)) {
+      const searchResponse = await fetch(`https://bolls.life/search-dictionaries/BDAG/${encoded}/`);
+      if (searchResponse.ok) {
+        const results = await searchResponse.json();
+        const greekResults = Array.isArray(results)
+          ? results.filter((r) => String(r.topic ?? '').startsWith('G'))
+          : [];
+        if (greekResults.length > 0) return [greekResults[0]];
+      }
+    }
+
+    return null;
   };
 
   const lookupGreekWord = async (chunkId, wordId) => {
@@ -886,8 +896,12 @@ const App = () => {
     if (!word || !word.query.trim()) return;
     updateChunkWord(chunkId, wordId, { loading: true });
     try {
-      const definitions = await fetchBollsDefinition(word.query);
-      if (!definitions) {
+      // Normalize bare numbers to G prefix: "4102" → "G4102" (Greek, not Hebrew H4102).
+      const raw = word.query.trim();
+      const normalized = /^\d+$/.test(raw) ? `G${raw}` : /^[gGhH]\d+$/.test(raw) ? raw.toUpperCase() : raw;
+
+      const definitions = await fetchBollsDefinition(normalized);
+      if (!definitions || definitions.length === 0) {
         updateChunkWord(chunkId, wordId, {
           strongNumber: '',
           shortDefinition: 'No definition found.',
@@ -898,7 +912,7 @@ const App = () => {
       const first = definitions[0];
       const extractedPartOfSpeech = extractPartOfSpeech(first.definition || '');
       updateChunkWord(chunkId, wordId, {
-        strongNumber: first.topic || word.query,
+        strongNumber: first.topic || normalized,
         lexeme: first.lexeme || '',
         transliteration: first.transliteration || '',
         partOfSpeech: extractedPartOfSpeech || word.partOfSpeech || '',
@@ -1633,7 +1647,7 @@ const App = () => {
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') { e.preventDefault(); lookupGreekWord(selectedChunk.id, word.id); }
                                 }}
-                                placeholder="G4102 or faith"
+                                placeholder="G4102, 4102, or faith (Greek)"
                                 className="mt-2 block w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
                               />
                             </label>
