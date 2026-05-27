@@ -851,17 +851,43 @@ const App = () => {
     }));
   };
 
+  const isGreekStrongNumber = (query) => /^G\d+$/i.test(query.trim());
+  const isHebrewStrongNumber = (query) => /^H\d+$/i.test(query.trim());
+
+  const fetchBollsDefinition = async (query) => {
+    const encoded = encodeURIComponent(query.trim());
+    const greekUrl = `https://bolls.life/dictionary-definition/BDAG/${encoded}/`;
+    const hebrewUrl = `https://bolls.life/dictionary-definition/BDBT/${encoded}/`;
+
+    if (isHebrewStrongNumber(query)) {
+      const response = await fetch(hebrewUrl);
+      if (!response.ok) return null;
+      const definitions = await response.json();
+      return Array.isArray(definitions) && definitions.length > 0 ? definitions : null;
+    }
+
+    const greekResponse = await fetch(greekUrl);
+    if (greekResponse.ok) {
+      const greekDefinitions = await greekResponse.json();
+      if (Array.isArray(greekDefinitions) && greekDefinitions.length > 0) {
+        return greekDefinitions;
+      }
+    }
+
+    const hebrewResponse = await fetch(hebrewUrl);
+    if (!hebrewResponse.ok) return null;
+    const hebrewDefinitions = await hebrewResponse.json();
+    return Array.isArray(hebrewDefinitions) && hebrewDefinitions.length > 0 ? hebrewDefinitions : null;
+  };
+
   const lookupGreekWord = async (chunkId, wordId) => {
     const chunk = allChunks.find((c) => c.id === chunkId);
     const word = chunk?.greekWords.find((w) => w.id === wordId);
     if (!word || !word.query.trim()) return;
     updateChunkWord(chunkId, wordId, { loading: true });
     try {
-      const query = encodeURIComponent(word.query.trim());
-      const response = await fetch(`https://bolls.life/dictionary-definition/BDBT/${query}/`);
-      if (!response.ok) throw new Error('Lookup failed.');
-      const definitions = await response.json();
-      if (!Array.isArray(definitions) || definitions.length === 0) {
+      const definitions = await fetchBollsDefinition(word.query);
+      if (!definitions) {
         updateChunkWord(chunkId, wordId, {
           strongNumber: '',
           shortDefinition: 'No definition found.',
