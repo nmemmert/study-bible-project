@@ -855,26 +855,35 @@ const App = () => {
   const isHebrewStrongNumber = (query) => /^H\d+$/i.test(query.trim());
 
   const fetchBollsDefinition = async (query) => {
-    const encoded = encodeURIComponent(query.trim());
-    const dictUrl = `https://bolls.life/dictionary-definition/BDBT/${encoded}/`;
+    const isGreek = isGreekStrongNumber(query);
+    const isHebrew = isHebrewStrongNumber(query);
 
-    // Direct Strong's number lookup (G prefix = Greek/Thayer's, H prefix = Hebrew/BDB)
-    if (isGreekStrongNumber(query) || isHebrewStrongNumber(query)) {
-      const response = await fetch(dictUrl);
+    if (isGreek || isHebrew) {
+      // The bolls.life API uses bare numbers in the URL (no G/H prefix).
+      // We filter returned results by topic prefix to get the right language.
+      const bare = query.trim().replace(/^[GgHh]/, '');
+      const response = await fetch(`https://bolls.life/dictionary-definition/BDBT/${encodeURIComponent(bare)}/`);
       if (!response.ok) return null;
-      const definitions = await response.json();
-      return Array.isArray(definitions) && definitions.length > 0 ? definitions : null;
+      let defs;
+      try { defs = await response.json(); } catch { return null; }
+      if (!Array.isArray(defs) || defs.length === 0) return null;
+      const prefix = isGreek ? 'G' : 'H';
+      const filtered = defs.filter((d) => String(d.topic ?? '').toUpperCase().startsWith(prefix));
+      return filtered.length > 0 ? filtered : defs;
     }
 
-    // English word — full-text search, then filter to Greek entries only
-    const searchResponse = await fetch(`https://bolls.life/search-dictionaries/BDBT/${encoded}/`);
-    if (searchResponse.ok) {
-      const results = await searchResponse.json();
-      const greekResults = Array.isArray(results)
-        ? results.filter((r) => String(r.topic ?? '').startsWith('G'))
-        : [];
-      if (greekResults.length > 0) return [greekResults[0]];
-    }
+    // English word — full-text search, filter to Greek entries only
+    const encoded = encodeURIComponent(query.trim());
+    try {
+      const searchResponse = await fetch(`https://bolls.life/search-dictionaries/BDBT/${encoded}/`);
+      if (searchResponse.ok) {
+        const results = await searchResponse.json();
+        const greekResults = Array.isArray(results)
+          ? results.filter((r) => String(r.topic ?? '').startsWith('G'))
+          : [];
+        if (greekResults.length > 0) return [greekResults[0]];
+      }
+    } catch { /* fall through */ }
 
     return null;
   };
