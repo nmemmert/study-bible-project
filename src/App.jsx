@@ -892,36 +892,79 @@ const App = () => {
     ];
   };
 
-  const fetchBollsDefinition = async (query) => {
-    const isGreek = isGreekStrongNumber(query);
-    const isHebrew = isHebrewStrongNumber(query);
+  // Module-level cache for the Greek Strong's dictionary (loaded once, ~1.2 MB)
+  const _greekDictRef = useRef(null);
+  const _greekDictLoadingRef = useRef(null);
 
-    if (isGreek || isHebrew) {
-      // The bolls.life API uses bare numbers in the URL (no G/H prefix).
-      // We filter returned results by topic prefix to get the right language.
-      const bare = query.trim().replace(/^[GgHh]/, '');
-      const response = await fetch(`https://bolls.life/dictionary-definition/BDBT/${encodeURIComponent(bare)}/`);
+  const loadGreekDict = async () => {
+    if (_greekDictRef.current) return _greekDictRef.current;
+    if (_greekDictLoadingRef.current) return _greekDictLoadingRef.current;
+    _greekDictLoadingRef.current = fetch(
+      'https://cdn.jsdelivr.net/gh/openscriptures/strongs@master/greek/strongs-greek-dictionary.js',
+    )
+      .then((res) => res.text())
+      .then((text) => {
+        const start = text.indexOf('{');
+        const end = text.lastIndexOf('}') + 1;
+        const dict = JSON.parse(text.slice(start, end));
+        _greekDictRef.current = dict;
+        _greekDictLoadingRef.current = null;
+        return dict;
+      });
+    return _greekDictLoadingRef.current;
+  };
+
+  const buildGreekDefinitionHtml = (key, entry) => {
+    let html = '';
+    if (entry.strongs_def) html += `<p>${entry.strongs_def.trim()}</p>`;
+    if (entry.derivation) html += `<p><em>Derivation:</em> ${entry.derivation}</p>`;
+    if (entry.kjv_def) html += `<p><em>KJV uses:</em> ${entry.kjv_def}</p>`;
+    return html;
+  };
+
+  const fetchBollsDefinition = async (query) => {
+    const encoded = encodeURIComponent(query.trim());
+
+    if (isHebrewStrongNumber(query)) {
+      const response = await fetch(`https://bolls.life/dictionary-definition/BDBT/${encoded}/`);
       if (!response.ok) return null;
       let defs;
       try { defs = await response.json(); } catch { return null; }
-      if (!Array.isArray(defs) || defs.length === 0) return null;
-      const prefix = isGreek ? 'G' : 'H';
-      const filtered = defs.filter((d) => String(d.topic ?? '').toUpperCase().startsWith(prefix));
-      return filtered.length > 0 ? filtered : defs;
+      return Array.isArray(defs) && defs.length > 0 ? defs : null;
     }
 
-    // English word — full-text search, filter to Greek entries only
-    const encoded = encodeURIComponent(query.trim());
-    try {
-      const searchResponse = await fetch(`https://bolls.life/search-dictionaries/BDBT/${encoded}/`);
-      if (searchResponse.ok) {
-        const results = await searchResponse.json();
-        const greekResults = Array.isArray(results)
-          ? results.filter((r) => String(r.topic ?? '').startsWith('G'))
-          : [];
-        if (greekResults.length > 0) return [greekResults[0]];
-      }
-    } catch { /* fall through */ }
+    // Greek — look up in the cached OpenScriptures Strong's dictionary.
+    const dict = await loadGreekDict();
+    const key = isGreekStrongNumber(query) ? query.trim().toUpperCase() : null;
+
+    if (key) {
+      const entry = dict[key];
+      if (!entry) return null;
+      return [{
+        topic: key,
+        lexeme: entry.lemma || '',
+        transliteration: entry.translit || '',
+        short_definition: entry.kjv_def || '',
+        definition: buildGreekDefinitionHtml(key, entry),
+      }];
+    }
+
+    // English word search — scan kjv_def and strongs_def for the query term.
+    const lowerQ = query.trim().toLowerCase();
+    const match = Object.entries(dict).find(([, entry]) =>
+      (entry.kjv_def || '').toLowerCase().split(/[,\s]+/).some((w) => w === lowerQ) ||
+      (entry.strongs_def || '').toLowerCase().includes(lowerQ),
+    );
+    if (match) {
+      const [matchKey, entry] = match;
+      return [{
+        topic: matchKey,
+        lexeme: entry.lemma || '',
+        transliteration: entry.translit || '',
+        short_definition: entry.kjv_def || '',
+        definition: buildGreekDefinitionHtml(matchKey, entry),
+      }];
+    }
 
     return null;
   };
