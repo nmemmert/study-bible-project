@@ -880,6 +880,7 @@ useEffect(() => {
       id: makeId(),
       query: '',
       strongNumber: '',
+      englishGloss: '',
       lexeme: '',
       transliteration: '',
       partOfSpeech: '',
@@ -1039,6 +1040,7 @@ useEffect(() => {
         id: makeId(),
         query: w.strongKey,
         strongNumber: w.strongKey,
+        englishGloss: w.def,
         lexeme: w.lexeme,
         transliteration: w.translit,
         partOfSpeech: '',
@@ -1172,7 +1174,10 @@ useEffect(() => {
       const raw = word.query.trim();
       const normalized = /^\d+$/.test(raw) ? `G${raw}` : /^[gGhH]\d+$/.test(raw) ? raw.toUpperCase() : raw;
 
-      const definitions = await fetchBollsDefinition(normalized);
+      const [definitions, gloss] = await Promise.all([
+        fetchBollsDefinition(normalized),
+        loadNtGloss().catch(() => ({})),
+      ]);
       if (!definitions || definitions.length === 0) {
         updateChunkWord(chunkId, wordId, {
           strongNumber: '',
@@ -1182,9 +1187,11 @@ useEffect(() => {
         return;
       }
       const first = definitions[0];
+      const strongKey = (first.topic || normalized).toUpperCase();
       const extractedPartOfSpeech = extractPartOfSpeech(first.definition || '');
       updateChunkWord(chunkId, wordId, {
         strongNumber: first.topic || normalized,
+        englishGloss: gloss[strongKey] || '',
         lexeme: first.lexeme || '',
         transliteration: first.transliteration || '',
         partOfSpeech: extractedPartOfSpeech || word.partOfSpeech || '',
@@ -2046,6 +2053,16 @@ const restoreRemoteProject = async (id) => {
                             </label>
                           </div>
                           <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                            <label className="text-sm text-slate-600">
+                              English word
+                              <input
+                                type="text"
+                                value={word.englishGloss ?? ''}
+                                onChange={(e) => updateChunkWord(selectedChunk.id, word.id, { englishGloss: e.target.value })}
+                                placeholder="e.g. grace"
+                                className="mt-2 block w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                              />
+                            </label>
                             <label className="text-sm text-slate-600">
                               Short definition
                               <input
