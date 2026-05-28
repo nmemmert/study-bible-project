@@ -918,6 +918,23 @@ useEffect(() => {
   const _concordanceRef = useRef(null);
   const _concordanceLoadingRef = useRef(null);
 
+  // Cache for the NT Strong's→English gloss map (from macula-greek dataset), loaded once
+  const _glossRef = useRef(null);
+  const _glossLoadingRef = useRef(null);
+
+  const loadNtGloss = async () => {
+    if (_glossRef.current) return _glossRef.current;
+    if (_glossLoadingRef.current) return _glossLoadingRef.current;
+    _glossLoadingRef.current = fetch('/nt-strongs-gloss.json')
+      .then((res) => res.json())
+      .then((data) => {
+        _glossRef.current = data;
+        _glossLoadingRef.current = null;
+        return data;
+      });
+    return _glossLoadingRef.current;
+  };
+
   const loadNtConcordance = async () => {
     if (_concordanceRef.current) return _concordanceRef.current;
     if (_concordanceLoadingRef.current) return _concordanceLoadingRef.current;
@@ -959,7 +976,7 @@ useEffect(() => {
     }
     setSuggestingGreekForChunkId(chunkId);
     try {
-      const [concordance, dict] = await Promise.all([loadNtConcordance(), loadGreekDict()]);
+      const [concordance, dict, gloss] = await Promise.all([loadNtConcordance(), loadGreekDict(), loadNtGloss()]);
       const bookData = concordance[chapter.bookAbbrev] ?? {};
       const chapterData = bookData[chapter.chapter] ?? {};
 
@@ -986,7 +1003,7 @@ useEffect(() => {
           strongKey,
           lexeme: entry?.lemma ?? '',
           translit: entry?.translit ?? '',
-          def: entry?.kjv_def ?? 'No definition found.',
+          def: gloss[strongKey] ?? entry?.kjv_def ?? 'No definition found.',
           entry,
         });
       }
@@ -2159,7 +2176,7 @@ const restoreRemoteProject = async (id) => {
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline gap-2">
-                        <span className="font-semibold text-slate-900">{(w.def ? (w.def.split(',').map(s => s.trim()).filter(s => !s.startsWith('X ') && !s.startsWith('+ ')).map(s => s.replace(/^[\s()\-]+/, '').trim()).find(s => s.length > 0) || w.def.split(',')[0].trim()) : w.strongKey)}</span>
+                        <span className="font-semibold text-slate-900">{w.def || w.strongKey}</span>
                         <span className="text-sm text-slate-500">{w.lexeme}</span>
                         {w.translit && <span className="text-xs text-slate-400 italic">{w.translit}</span>}
                         <span className="text-xs font-mono text-slate-300">{w.strongKey}</span>
