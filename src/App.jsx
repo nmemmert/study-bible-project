@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Document,
   HeadingLevel,
@@ -2111,8 +2112,8 @@ const restoreRemoteProject = async (id) => {
         </section>
       </main>
 
-      {/* Greek word picker modal */}
-      {suggestModal && (
+      {/* Greek word picker modal — portalled to document.body so it's never clipped by parent CSS */}
+      {suggestModal && createPortal(
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
           onClick={(e) => { if (e.target === e.currentTarget) { setSuggestModal(null); setSuggestSelection(new Set()); } }}
@@ -2143,7 +2144,7 @@ const restoreRemoteProject = async (id) => {
             <ul className="flex-1 overflow-y-auto divide-y divide-slate-100 px-4 py-2">
               {suggestModal.words.map((w) => (
                 <li key={w.strongKey}>
-                  <label className="flex cursor-pointer items-start gap-3 py-2.5">
+                  <label className="flex cursor-pointer items-center gap-3 py-2.5">
                     <input
                       type="checkbox"
                       checked={suggestSelection.has(w.strongKey)}
@@ -2154,13 +2155,15 @@ const restoreRemoteProject = async (id) => {
                           return next;
                         });
                       }}
-                      className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-slate-900"
+                      className="h-4 w-4 shrink-0 rounded border-slate-300 accent-slate-900"
                     />
-                    <div className="min-w-0">
-                      <span className="font-medium text-slate-900">{w.lexeme || w.strongKey}</span>
-                      {w.translit && <span className="ml-1.5 text-xs text-slate-400 italic">{w.translit}</span>}
-                      <span className="ml-1.5 text-xs font-mono text-slate-400">{w.strongKey}</span>
-                      <p className="text-xs text-slate-500 mt-0.5 truncate">{w.def}</p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline gap-2">
+                        <span className="font-semibold text-slate-900">{w.def || w.strongKey}</span>
+                        <span className="text-sm text-slate-500">{w.lexeme}</span>
+                        {w.translit && <span className="text-xs text-slate-400 italic">{w.translit}</span>}
+                        <span className="text-xs font-mono text-slate-300">{w.strongKey}</span>
+                      </div>
                     </div>
                   </label>
                 </li>
@@ -2178,7 +2181,8 @@ const restoreRemoteProject = async (id) => {
               >Add {suggestSelection.size > 0 ? `${suggestSelection.size} word${suggestSelection.size > 1 ? 's' : ''}` : 'words'}</button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
