@@ -6,6 +6,13 @@ export default defineConfig({
   server: {
     host: true,
     allowedHosts: ['study.necloud.us', 'localhost', 'study.versebyversewithnate.us'],
+    // Proxy /api calls to the Express backend during development
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+    },
   },
   test: {
     environment: 'jsdom',

@@ -11,6 +11,13 @@ import {
   WidthType,
 } from 'docx';
 
+import {
+  saveRemoteProject,
+  deleteRemoteProject,
+  listRemoteProjects,
+  loadRemoteProject,
+} from './syncService.js';
+
 const bookOptions = [
   { name: 'Matthew', abbrev: 'MAT' },
   { name: 'Mark', abbrev: 'MRK' },
@@ -512,13 +519,24 @@ const App = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const saveTimerRef = useRef(null);
-
+  const [syncStatus, setSyncStatus] = useState('');   // '' | 'syncing' | 'synced' | 'error'
+  const [remoteOnlyProjects, setRemoteOnlyProjects] = useState([]); // projects on server not in localStorage
+  
   // ---------------------------------------------------------------------------
   // Startup: migrate old keys and load index
   // ---------------------------------------------------------------------------
   useEffect(() => {
     migrateOldStorageKeys();
-    setProjectIndex(loadProjectIndex());
+    const localIndex = loadProjectIndex();
+    setProjectIndex(localIndex);
+
+    // Check server for any projects not present locally (cross-device restore)
+    listRemoteProjects().then((result) => {
+      if (!result.ok) return;
+      const localIds = new Set(localIndex.map((e) => e.id));
+      const missing = result.data.filter((e) => !localIds.has(e.id));
+      if (missing.length > 0) setRemoteOnlyProjects(missing);
+    });
   }, []);
 
   useEffect(() => {
@@ -555,14 +573,21 @@ const App = () => {
   }, [project?.selectedChunkId]);
 
   // Autosave
-  useEffect(() => {
+useEffect(() => {
     if (!project) return;
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = window.setTimeout(() => {
+    saveTimerRef.current = window.setTimeout(async () => {
+      // 1. Always save locally first
       saveProjectToStorage(project);
       setProjectIndex(loadProjectIndex());
       setSaveStatus('Saved');
       window.setTimeout(() => setSaveStatus(''), 1400);
+
+      // 2. Then sync to server (non-blocking — failures are silent)
+      setSyncStatus('syncing');
+      const result = await saveRemoteProject(project);
+      setSyncStatus(result.ok ? 'synced' : 'error');
+      window.setTimeout(() => setSyncStatus(''), 2500);
     }, 1000);
     return () => {
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
@@ -1145,11 +1170,23 @@ const App = () => {
     setCurrentPage('setup');
   };
 
-  const deleteProject = (id) => {
+const deleteProject = (id) => {
     if (!window.confirm('Delete this project? This cannot be undone.')) return;
     deleteProjectFromStorage(id);
     setProjectIndex(loadProjectIndex());
+    deleteRemoteProject(id); // fire-and-forget
   };
+
+const restoreRemoteProject = async (id) => {
+   const result = await loadRemoteProject(id);
+   if (!result.ok) {
+     alert('Could not restore project from server.');
+     return;
+   }
+   saveProjectToStorage(result.data);
+   setProjectIndex(loadProjectIndex());
+   setRemoteOnlyProjects((prev) => prev.filter((e) => e.id !== id));
+ }; 
 
   const goHome = () => {
     setProjectIndex(loadProjectIndex());
@@ -1212,16 +1249,18 @@ const App = () => {
           </button>
         </div>
       )}
-      <div className="text-right text-sm text-slate-300">
-        {loadingChapter ? (
-          <span>Loading…</span>
-        ) : saveStatus ? (
-          <span className="text-emerald-300">{saveStatus}</span>
-        ) : (
-          <span>&nbsp;</span>
-        )}
-      </div>
-    </div>
+        <div className="text-right text-sm text-slate-300 space-y-0.5">
+          {loadingChapter ? (
+            <span>Loading…</span>
+          ) : saveStatus ? (
+            <span className="text-emerald-300">{saveStatus}</span>
+           ) : (
+           <span>&nbsp;</span>
+          )}
+          {syncStatus === 'syncing' && <div className="text-xs text-slate-400">Syncing…</div>}
+          {syncStatus === 'synced' && <div className="text-xs text-emerald-400">Synced ✓</div>}
+          {syncStatus === 'error' && <div className="text-xs text-amber-400">Sync failed (saved locally)</div>}
+        </div>
   );
 
   // ---------------------------------------------------------------------------
@@ -1246,6 +1285,25 @@ const App = () => {
           </div>
         </header>
         <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+          {remoteOnlyProjects.length > 0 && (
+            <div className="mb-6 rounded-2xl border border-sky-200 bg-sky-50 p-4">
+              <p className="mb-3 text-sm font-semibold text-sky-800">
+                📥 {remoteOnlyProjects.length} project{remoteOnlyProjects.length > 1 ? 's' : ''} found on the server that aren't saved locally:
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {remoteOnlyProjects.map((entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => restoreRemoteProject(entry.id)}
+                    className="rounded-xl bg-sky-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-600"
+                  >
+                    Restore "{entry.title}"
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {projectIndex.length === 0 ? (
             <div className="mx-auto max-w-xl rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center shadow-panel">
               <p className="text-lg font-semibold text-slate-700">No projects yet</p>
