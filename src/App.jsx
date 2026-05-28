@@ -910,6 +910,23 @@ useEffect(() => {
     }));
   };
 
+  // Cache for the NT Strong's concordance (verse → Strong's numbers), loaded once
+  const _concordanceRef = useRef(null);
+  const _concordanceLoadingRef = useRef(null);
+
+  const loadNtConcordance = async () => {
+    if (_concordanceRef.current) return _concordanceRef.current;
+    if (_concordanceLoadingRef.current) return _concordanceLoadingRef.current;
+    _concordanceLoadingRef.current = fetch('/nt-strongs-concordance.json')
+      .then((res) => res.json())
+      .then((data) => {
+        _concordanceRef.current = data;
+        _concordanceLoadingRef.current = null;
+        return data;
+      });
+    return _concordanceLoadingRef.current;
+  };
+
   const suggestGreekWordsForChunk = async (chunkId) => {
     const chunk = allChunks.find((c) => c.id === chunkId);
     const chapter = project?.chapters.find((ch) =>
@@ -923,47 +940,36 @@ useEffect(() => {
     }
     setSuggestingGreekForChunkId(chunkId);
     try {
-      const res = await fetch(
-        `https://bible.helloao.org/api/SBLGNT/${chapter.bookAbbrev}/${chapter.chapter}.json`
-      );
-      if (!res.ok) throw new Error('Could not fetch interlinear data.');
-      const data = await res.json();
-      const verses = Array.isArray(data?.verses)
-        ? data.verses
-        : (data?.chapter?.content ?? []).filter((item) => item?.type === 'verse');
-      const strongsInRange = new Map();
-      for (const verse of verses) {
-        const verseNum = verse.number ?? verse.verse;
-        if (verseNum < chunk.startVerse || verseNum > chunk.endVerse) continue;
-        const words = Array.isArray(verse.content) ? verse.content : [];
-        for (const word of words) {
-          const strongs = word?.strongs ?? word?.strong;
-          const text = word?.text ?? word?.greek ?? '';
-          const translit = word?.transliteration ?? word?.translit ?? '';
-          if (!strongs || !/^G\d+$/i.test(strongs)) continue;
-          const key = strongs.toUpperCase();
-          if (!strongsInRange.has(key)) strongsInRange.set(key, { strongs: key, text, translit });
-        }
+      const [concordance, dict] = await Promise.all([loadNtConcordance(), loadGreekDict()]);
+      const bookData = concordance[chapter.bookAbbrev] ?? {};
+      const chapterData = bookData[chapter.chapter] ?? {};
+
+      // Collect unique Strong's numbers across the verse range
+      const strongsInRange = new Set();
+      for (let v = chunk.startVerse; v <= chunk.endVerse; v++) {
+        const verseStrongs = chapterData[String(v)] ?? [];
+        for (const s of verseStrongs) strongsInRange.add(s);
       }
+
       if (strongsInRange.size === 0) {
         setStatusMessage("No Strong's data found for this passage.");
         window.setTimeout(() => setStatusMessage(''), 3000);
         return;
       }
-      const dict = await loadGreekDict();
+
       const existingNumbers = new Set(
         chunk.greekWords.map((w) => w.strongNumber.toUpperCase()).filter(Boolean)
       );
       const newWords = [];
-      for (const [strongKey, meta] of strongsInRange) {
+      for (const strongKey of strongsInRange) {
         if (existingNumbers.has(strongKey)) continue;
         const entry = dict[strongKey];
         newWords.push({
           id: makeId(),
           query: strongKey,
           strongNumber: strongKey,
-          lexeme: entry?.lemma ?? meta.text ?? '',
-          transliteration: entry?.translit ?? meta.translit ?? '',
+          lexeme: entry?.lemma ?? '',
+          transliteration: entry?.translit ?? '',
           partOfSpeech: '',
           shortDefinition: entry?.kjv_def ?? 'No definition found.',
           definitionHtml: entry ? buildGreekDefinitionHtml(strongKey, entry) : '',
