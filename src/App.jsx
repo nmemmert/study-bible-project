@@ -532,6 +532,9 @@ const App = () => {
   const [remoteOnlyProjects, setRemoteOnlyProjects] = useState([]); // projects on server not in localStorage
   const [staleLocalProjects, setStaleLocalProjects] = useState([]); // projects where server is newer
   const [suggestingGreekForChunkId, setSuggestingGreekForChunkId] = useState(null);
+  // suggestModal: null | { chunkId, words: [{ strongKey, lexeme, translit, def }] }
+  const [suggestModal, setSuggestModal] = useState(null);
+  const [suggestSelection, setSuggestSelection] = useState(new Set());
 
   // ---------------------------------------------------------------------------
   // Startup: migrate old keys and load index
@@ -927,6 +930,21 @@ useEffect(() => {
     return _concordanceLoadingRef.current;
   };
 
+  // Common Greek NT function words to pre-uncheck in the picker
+  // (articles, prepositions, conjunctions, particles, common pronouns)
+  const GREEK_FUNCTION_WORDS = new Set([
+    'G3588','G3739','G3748', // ὁ (the), ὅς (who/which), ὅστις
+    'G2532','G1161','G1063','G235','G3767','G2443','G5037','G3303', // καί, δέ, γάρ, ἀλλά, οὖν, ἵνα, τέ, μέν
+    'G1487','G1437','G3754','G5613','G2531','G5618', // εἰ, ἐάν, ὅτι, ὡς, καθώς, ὥσπερ
+    'G1722','G1519','G1537','G575','G4314','G3326','G2596','G1223', // ἐν, εἰς, ἐκ, ἀπό, πρός, μετά, κατά, διά
+    'G1909','G5228','G5259','G4862','G3844','G4253','G4012','G1722', // ἐπί, ὑπέρ, ὑπό, σύν, παρά, πρό, περί
+    'G3756','G3361','G3780','G3762','G3763', // οὐ, μή, οὐχί, οὐδείς, οὐδέποτε
+    'G846','G1473','G4771','G2249','G5210', // αὐτός, ἐγώ, σύ, ἡμεῖς, ὑμεῖς
+    'G3778','G1565','G3588', // οὗτος, ἐκεῖνος
+    'G5100','G5101','G3956','G3745','G3748', // τις, τίς, πᾶς, ὅσος
+    'G3779','G3568','G5119','G1161','G3767', // οὕτως, νῦν, τότε
+  ]);
+
   const suggestGreekWordsForChunk = async (chunkId) => {
     const chunk = allChunks.find((c) => c.id === chunkId);
     const chapter = project?.chapters.find((ch) =>
@@ -944,11 +962,9 @@ useEffect(() => {
       const bookData = concordance[chapter.bookAbbrev] ?? {};
       const chapterData = bookData[chapter.chapter] ?? {};
 
-      // Collect unique Strong's numbers across the verse range
       const strongsInRange = new Set();
       for (let v = chunk.startVerse; v <= chunk.endVerse; v++) {
-        const verseStrongs = chapterData[String(v)] ?? [];
-        for (const s of verseStrongs) strongsInRange.add(s);
+        for (const s of chapterData[String(v)] ?? []) strongsInRange.add(s);
       }
 
       if (strongsInRange.size === 0) {
@@ -960,27 +976,59 @@ useEffect(() => {
       const existingNumbers = new Set(
         chunk.greekWords.map((w) => w.strongNumber.toUpperCase()).filter(Boolean)
       );
-      const newWords = [];
+
+      const modalWords = [];
       for (const strongKey of strongsInRange) {
         if (existingNumbers.has(strongKey)) continue;
         const entry = dict[strongKey];
-        newWords.push({
-          id: makeId(),
-          query: strongKey,
-          strongNumber: strongKey,
+        modalWords.push({
+          strongKey,
           lexeme: entry?.lemma ?? '',
-          transliteration: entry?.translit ?? '',
-          partOfSpeech: '',
-          shortDefinition: entry?.kjv_def ?? 'No definition found.',
-          definitionHtml: entry ? buildGreekDefinitionHtml(strongKey, entry) : '',
-          loading: false,
+          translit: entry?.translit ?? '',
+          def: entry?.kjv_def ?? 'No definition found.',
+          entry,
         });
       }
-      if (newWords.length === 0) {
+
+      if (modalWords.length === 0) {
         setStatusMessage('All words from this passage are already added.');
         window.setTimeout(() => setStatusMessage(''), 2000);
         return;
       }
+
+      // Pre-select content words; pre-uncheck known function words
+      const preSelected = new Set(
+        modalWords
+          .filter((w) => !GREEK_FUNCTION_WORDS.has(w.strongKey))
+          .map((w) => w.strongKey)
+      );
+      setSuggestModal({ chunkId, words: modalWords });
+      setSuggestSelection(preSelected);
+    } catch (err) {
+      setStatusMessage(`Suggest failed: ${err.message}`);
+      window.setTimeout(() => setStatusMessage(''), 3000);
+    } finally {
+      setSuggestingGreekForChunkId(null);
+    }
+  };
+
+  const confirmSuggestWords = () => {
+    if (!suggestModal) return;
+    const { chunkId, words } = suggestModal;
+    const newWords = words
+      .filter((w) => suggestSelection.has(w.strongKey))
+      .map((w) => ({
+        id: makeId(),
+        query: w.strongKey,
+        strongNumber: w.strongKey,
+        lexeme: w.lexeme,
+        transliteration: w.translit,
+        partOfSpeech: '',
+        shortDefinition: w.def,
+        definitionHtml: w.entry ? buildGreekDefinitionHtml(w.strongKey, w.entry) : '',
+        loading: false,
+      }));
+    if (newWords.length > 0) {
       updateProject((current) => ({
         ...current,
         chapters: current.chapters.map((ch) => ({
@@ -990,14 +1038,11 @@ useEffect(() => {
           ),
         })),
       }));
-      setStatusMessage(`Added ${newWords.length} Greek word${newWords.length > 1 ? 's' : ''} from this passage.`);
-      window.setTimeout(() => setStatusMessage(''), 2500);
-    } catch (err) {
-      setStatusMessage(`Suggest failed: ${err.message}`);
-      window.setTimeout(() => setStatusMessage(''), 3000);
-    } finally {
-      setSuggestingGreekForChunkId(null);
+      setStatusMessage(`Added ${newWords.length} Greek word${newWords.length > 1 ? 's' : ''}.`);
+      window.setTimeout(() => setStatusMessage(''), 2000);
     }
+    setSuggestModal(null);
+    setSuggestSelection(new Set());
   };
 
   const isGreekStrongNumber = (query) => /^G\d+$/i.test(query.trim());
@@ -2065,6 +2110,76 @@ const restoreRemoteProject = async (id) => {
           </div>
         </section>
       </main>
+
+      {/* Greek word picker modal */}
+      {suggestModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) { setSuggestModal(null); setSuggestSelection(new Set()); } }}
+        >
+          <div className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-3xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Select Greek words to add</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Content words are pre-checked. Uncheck any you don't need.</p>
+              </div>
+              <button
+                onClick={() => { setSuggestModal(null); setSuggestSelection(new Set()); }}
+                className="text-slate-400 hover:text-slate-600 text-xl leading-none"
+              >×</button>
+            </div>
+            <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-2">
+              <button
+                onClick={() => setSuggestSelection(new Set(suggestModal.words.map((w) => w.strongKey)))}
+                className="text-xs text-sky-600 hover:underline"
+              >Select all</button>
+              <span className="text-slate-300">·</span>
+              <button
+                onClick={() => setSuggestSelection(new Set())}
+                className="text-xs text-sky-600 hover:underline"
+              >Select none</button>
+              <span className="ml-auto text-xs text-slate-400">{suggestSelection.size} selected</span>
+            </div>
+            <ul className="flex-1 overflow-y-auto divide-y divide-slate-100 px-4 py-2">
+              {suggestModal.words.map((w) => (
+                <li key={w.strongKey}>
+                  <label className="flex cursor-pointer items-start gap-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={suggestSelection.has(w.strongKey)}
+                      onChange={(e) => {
+                        setSuggestSelection((prev) => {
+                          const next = new Set(prev);
+                          e.target.checked ? next.add(w.strongKey) : next.delete(w.strongKey);
+                          return next;
+                        });
+                      }}
+                      className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-slate-900"
+                    />
+                    <div className="min-w-0">
+                      <span className="font-medium text-slate-900">{w.lexeme || w.strongKey}</span>
+                      {w.translit && <span className="ml-1.5 text-xs text-slate-400 italic">{w.translit}</span>}
+                      <span className="ml-1.5 text-xs font-mono text-slate-400">{w.strongKey}</span>
+                      <p className="text-xs text-slate-500 mt-0.5 truncate">{w.def}</p>
+                    </div>
+                  </label>
+                </li>
+              ))}
+            </ul>
+            <div className="flex gap-3 border-t border-slate-200 px-6 py-4">
+              <button
+                onClick={() => { setSuggestModal(null); setSuggestSelection(new Set()); }}
+                className="flex-1 rounded-xl border border-slate-200 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+              >Cancel</button>
+              <button
+                onClick={confirmSuggestWords}
+                disabled={suggestSelection.size === 0}
+                className="flex-1 rounded-xl bg-slate-900 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed"
+              >Add {suggestSelection.size > 0 ? `${suggestSelection.size} word${suggestSelection.size > 1 ? 's' : ''}` : 'words'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
