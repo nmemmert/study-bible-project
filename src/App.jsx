@@ -2159,7 +2159,7 @@ const restoreRemoteProject = async (id) => {
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline gap-2">
-                        <span className="font-semibold text-slate-900">{w.def || w.strongKey}</span>
+                        <span className="font-semibold text-slate-900">{(w.def ? (w.def.split(',').map(s => s.trim()).filter(s => !s.startsWith('X ') && !s.startsWith('+ ')).map(s => s.replace(/^[\s()\-]+/, '').trim()).find(s => s.length > 0) || w.def.split(',')[0].trim()) : w.strongKey)}</span>
                         <span className="text-sm text-slate-500">{w.lexeme}</span>
                         {w.translit && <span className="text-xs text-slate-400 italic">{w.translit}</span>}
                         <span className="text-xs font-mono text-slate-300">{w.strongKey}</span>
