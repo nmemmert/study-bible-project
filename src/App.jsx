@@ -48,6 +48,15 @@ const bookOptions = [
   { name: 'Revelation', abbrev: 'REV' },
 ];
 
+const NT_BOOK_NUMBER = {
+  MAT: 40, MRK: 41, LUK: 42, JHN: 43, ACT: 44,
+  ROM: 45, '1CO': 46, '2CO': 47, GAL: 48, EPH: 49,
+  PHP: 50, COL: 51, '1TH': 52, '2TH': 53, '1TI': 54,
+  '2TI': 55, TIT: 56, PHM: 57, HEB: 58, JAS: 59,
+  '1PE': 60, '2PE': 61, '1JN': 62, '2JN': 63, '3JN': 64,
+  JUD: 65, REV: 66,
+};
+
 // ---------------------------------------------------------------------------
 // Stable utility exports (used by tests and other modules)
 // ---------------------------------------------------------------------------
@@ -521,7 +530,9 @@ const App = () => {
   const saveTimerRef = useRef(null);
   const [syncStatus, setSyncStatus] = useState('');   // '' | 'syncing' | 'synced' | 'error'
   const [remoteOnlyProjects, setRemoteOnlyProjects] = useState([]); // projects on server not in localStorage
-  
+  const [staleLocalProjects, setStaleLocalProjects] = useState([]); // projects where server is newer
+  const [suggestingGreekForChunkId, setSuggestingGreekForChunkId] = useState(null);
+
   // ---------------------------------------------------------------------------
   // Startup: migrate old keys and load index
   // ---------------------------------------------------------------------------
@@ -530,12 +541,16 @@ const App = () => {
     const localIndex = loadProjectIndex();
     setProjectIndex(localIndex);
 
-    // Check server for any projects not present locally (cross-device restore)
     listRemoteProjects().then((result) => {
       if (!result.ok) return;
-      const localIds = new Set(localIndex.map((e) => e.id));
-      const missing = result.data.filter((e) => !localIds.has(e.id));
+      const localMap = new Map(localIndex.map((e) => [e.id, e]));
+      const missing = result.data.filter((e) => !localMap.has(e.id));
       if (missing.length > 0) setRemoteOnlyProjects(missing);
+      const stale = result.data.filter((e) => {
+        const local = localMap.get(e.id);
+        return local && (e.lastEdited ?? 0) > (local.lastEdited ?? 0);
+      });
+      if (stale.length > 0) setStaleLocalProjects(stale);
     });
   }, []);
 
@@ -895,6 +910,90 @@ useEffect(() => {
     }));
   };
 
+  const suggestGreekWordsForChunk = async (chunkId) => {
+    const chunk = allChunks.find((c) => c.id === chunkId);
+    const chapter = project?.chapters.find((ch) =>
+      ch.chunks.some((c) => c.id === chunkId)
+    );
+    if (!chunk || !chapter) return;
+    if (!NT_BOOK_NUMBER[chapter.bookAbbrev]) {
+      setStatusMessage('Auto-suggest only works for New Testament books.');
+      window.setTimeout(() => setStatusMessage(''), 2500);
+      return;
+    }
+    setSuggestingGreekForChunkId(chunkId);
+    try {
+      const res = await fetch(
+        `https://bible.helloao.org/api/SBLGNT/${chapter.bookAbbrev}/${chapter.chapter}.json`
+      );
+      if (!res.ok) throw new Error('Could not fetch interlinear data.');
+      const data = await res.json();
+      const verses = Array.isArray(data?.verses)
+        ? data.verses
+        : (data?.chapter?.content ?? []).filter((item) => item?.type === 'verse');
+      const strongsInRange = new Map();
+      for (const verse of verses) {
+        const verseNum = verse.number ?? verse.verse;
+        if (verseNum < chunk.startVerse || verseNum > chunk.endVerse) continue;
+        const words = Array.isArray(verse.content) ? verse.content : [];
+        for (const word of words) {
+          const strongs = word?.strongs ?? word?.strong;
+          const text = word?.text ?? word?.greek ?? '';
+          const translit = word?.transliteration ?? word?.translit ?? '';
+          if (!strongs || !/^G\d+$/i.test(strongs)) continue;
+          const key = strongs.toUpperCase();
+          if (!strongsInRange.has(key)) strongsInRange.set(key, { strongs: key, text, translit });
+        }
+      }
+      if (strongsInRange.size === 0) {
+        setStatusMessage("No Strong's data found for this passage.");
+        window.setTimeout(() => setStatusMessage(''), 3000);
+        return;
+      }
+      const dict = await loadGreekDict();
+      const existingNumbers = new Set(
+        chunk.greekWords.map((w) => w.strongNumber.toUpperCase()).filter(Boolean)
+      );
+      const newWords = [];
+      for (const [strongKey, meta] of strongsInRange) {
+        if (existingNumbers.has(strongKey)) continue;
+        const entry = dict[strongKey];
+        newWords.push({
+          id: makeId(),
+          query: strongKey,
+          strongNumber: strongKey,
+          lexeme: entry?.lemma ?? meta.text ?? '',
+          transliteration: entry?.translit ?? meta.translit ?? '',
+          partOfSpeech: '',
+          shortDefinition: entry?.kjv_def ?? 'No definition found.',
+          definitionHtml: entry ? buildGreekDefinitionHtml(strongKey, entry) : '',
+          loading: false,
+        });
+      }
+      if (newWords.length === 0) {
+        setStatusMessage('All words from this passage are already added.');
+        window.setTimeout(() => setStatusMessage(''), 2000);
+        return;
+      }
+      updateProject((current) => ({
+        ...current,
+        chapters: current.chapters.map((ch) => ({
+          ...ch,
+          chunks: ch.chunks.map((c) =>
+            c.id === chunkId ? { ...c, greekWords: [...c.greekWords, ...newWords] } : c
+          ),
+        })),
+      }));
+      setStatusMessage(`Added ${newWords.length} Greek word${newWords.length > 1 ? 's' : ''} from this passage.`);
+      window.setTimeout(() => setStatusMessage(''), 2500);
+    } catch (err) {
+      setStatusMessage(`Suggest failed: ${err.message}`);
+      window.setTimeout(() => setStatusMessage(''), 3000);
+    } finally {
+      setSuggestingGreekForChunkId(null);
+    }
+  };
+
   const isGreekStrongNumber = (query) => /^G\d+$/i.test(query.trim());
   const isHebrewStrongNumber = (query) => /^H\d+$/i.test(query.trim());
 
@@ -1186,7 +1285,18 @@ const restoreRemoteProject = async (id) => {
    saveProjectToStorage(result.data);
    setProjectIndex(loadProjectIndex());
    setRemoteOnlyProjects((prev) => prev.filter((e) => e.id !== id));
- }; 
+ };
+
+  const pullLatestFromServer = async (id) => {
+    const result = await loadRemoteProject(id);
+    if (!result.ok) {
+      alert('Could not pull latest version from server.');
+      return;
+    }
+    saveProjectToStorage(result.data);
+    setProjectIndex(loadProjectIndex());
+    setStaleLocalProjects((prev) => prev.filter((e) => e.id !== id));
+  };
 
   const goHome = () => {
     setProjectIndex(loadProjectIndex());
@@ -1300,6 +1410,25 @@ const restoreRemoteProject = async (id) => {
                     className="rounded-xl bg-sky-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-600"
                   >
                     Restore "{entry.title}"
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {staleLocalProjects.length > 0 && (
+            <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+              <p className="mb-3 text-sm font-semibold text-amber-800">
+                ☁️ {staleLocalProjects.length} project{staleLocalProjects.length > 1 ? 's have' : ' has'} a newer version on the server:
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {staleLocalProjects.map((entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => pullLatestFromServer(entry.id)}
+                    className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-600"
+                  >
+                    Pull latest "{entry.title}"
                   </button>
                 ))}
               </div>
@@ -1759,13 +1888,24 @@ const restoreRemoteProject = async (id) => {
                       <h3 className="text-sm font-semibold text-slate-900">Greek Word Studies</h3>
                       <p className="text-sm text-slate-500">Add lexical notes, look up Strong's entries.</p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => addGreekWord(selectedChunk.id)}
-                      className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-                    >
-                      Add Greek Word
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => suggestGreekWordsForChunk(selectedChunk.id)}
+                        disabled={suggestingGreekForChunkId === selectedChunk.id}
+                        className="rounded-full bg-amber-100 px-4 py-2 text-sm font-semibold text-amber-800 border border-amber-300 transition hover:bg-amber-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Auto-populate Greek words that actually appear in this passage"
+                      >
+                        {suggestingGreekForChunkId === selectedChunk.id ? 'Suggesting…' : '✦ Suggest from passage'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => addGreekWord(selectedChunk.id)}
+                        className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                      >
+                        Add Greek Word
+                      </button>
+                    </div>
                   </div>
                   <div className="space-y-4">
                     {selectedChunk.greekWords.length === 0 ? (
