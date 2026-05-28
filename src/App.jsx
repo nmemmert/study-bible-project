@@ -1261,6 +1261,7 @@ const restoreRemoteProject = async (id) => {
           {syncStatus === 'synced' && <div className="text-xs text-emerald-400">Synced ✓</div>}
           {syncStatus === 'error' && <div className="text-xs text-amber-400">Sync failed (saved locally)</div>}
         </div>
+    </div>
   );
 
   // ---------------------------------------------------------------------------
