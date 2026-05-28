@@ -130,7 +130,9 @@ function loadProjectIndex() {
 }
 
 function saveProjectToStorage(project) {
-  const updated = { ...project, lastEdited: Date.now() };
+  // Honour an already-stamped lastEdited (e.g. from autosave) so localStorage
+  // and the server always receive the identical timestamp.
+  const updated = { ...project, lastEdited: project.lastEdited ?? Date.now() };
   window.localStorage.setItem(projectKey(updated.id), JSON.stringify(updated));
   const index = loadProjectIndex();
   const existing = index.findIndex((e) => e.id === updated.id);
@@ -146,6 +148,7 @@ function saveProjectToStorage(project) {
     index.push(summary);
   }
   window.localStorage.setItem(INDEX_KEY, JSON.stringify(index));
+  return updated; // caller can use this exact object for the server PUT
 }
 
 function deleteProjectFromStorage(id) {
@@ -592,21 +595,25 @@ const App = () => {
   }, [project?.selectedChunkId]);
 
   // Autosave
-useEffect(() => {
+  useEffect(() => {
     if (!project) return;
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(async () => {
-      // 1. Always save locally first
-      saveProjectToStorage(project);
+      // Stamp lastEdited once so localStorage and server receive the same value
+      const toSave = { ...project, lastEdited: Date.now() };
+
+      // 1. Save locally
+      saveProjectToStorage(toSave);
       setProjectIndex(loadProjectIndex());
       setSaveStatus('Saved');
       window.setTimeout(() => setSaveStatus(''), 1400);
 
-      // 2. Then sync to server (non-blocking — failures are silent)
+      // 2. Sync to server with the same timestamped object
       setSyncStatus('syncing');
-      const result = await saveRemoteProject(project);
+      const result = await saveRemoteProject(toSave);
       setSyncStatus(result.ok ? 'synced' : 'error');
-      window.setTimeout(() => setSyncStatus(''), 2500);
+      // On success clear after 2.5s; on error keep visible until next successful sync
+      if (result.ok) window.setTimeout(() => setSyncStatus(''), 2500);
     }, 1000);
     return () => {
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
@@ -1445,7 +1452,26 @@ const restoreRemoteProject = async (id) => {
           )}
           {syncStatus === 'syncing' && <div className="text-xs text-slate-400">Syncing…</div>}
           {syncStatus === 'synced' && <div className="text-xs text-emerald-400">Synced ✓</div>}
-          {syncStatus === 'error' && <div className="text-xs text-amber-400">Sync failed (saved locally)</div>}
+          {syncStatus === 'error' && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-rose-400">⚠ Sync failed</span>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!project) return;
+                  setSyncStatus('syncing');
+                  const toSave = { ...project, lastEdited: Date.now() };
+                  saveProjectToStorage(toSave);
+                  const result = await saveRemoteProject(toSave);
+                  setSyncStatus(result.ok ? 'synced' : 'error');
+                  if (result.ok) window.setTimeout(() => setSyncStatus(''), 2500);
+                }}
+                className="text-xs text-slate-300 underline hover:text-white"
+              >
+                Retry
+              </button>
+            </div>
+          )}
         </div>
     </div>
   );
