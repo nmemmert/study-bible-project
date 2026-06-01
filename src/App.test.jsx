@@ -289,19 +289,19 @@ async function goToStudyAndAddGreekWord(fetchMock) {
   fireEvent.click(screen.getByRole('button', { name: /begin studying/i }));
   await screen.findByText(/chunk editor/i);
   fireEvent.click(screen.getByRole('button', { name: /add greek word/i }));
-  await screen.findByPlaceholderText(/G4102, 4102/i);
+  await screen.findByPlaceholderText(/G4102, H7225, 4102/i);
 }
 
 describe('Greek word lookup', () => {
   test('adds a Greek word entry form', async () => {
     await goToStudyAndAddGreekWord();
-    expect(screen.getByPlaceholderText(/G4102, 4102/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/G4102, H7225, 4102/i)).toBeInTheDocument();
   });
 
   test('populates fields after a successful lookup', async () => {
     await goToStudyAndAddGreekWord(buildFetchMock({ greekData: mockGreekDefinition }));
-    fireEvent.change(screen.getByPlaceholderText(/G4102, 4102/i), { target: { value: 'G4102' } });
-    fireEvent.click(screen.getByRole('button', { name: /look up/i }));
+    fireEvent.change(screen.getByPlaceholderText(/G4102, H7225, 4102/i), { target: { value: 'G4102' } });
+    fireEvent.click(screen.getByRole('button', { name: /look up greek/i }));
     await screen.findByDisplayValue('πίστις');
     expect(screen.getByDisplayValue('pistis')).toBeInTheDocument();
     expect(screen.getByDisplayValue('faith, belief')).toBeInTheDocument();
@@ -309,8 +309,8 @@ describe('Greek word lookup', () => {
 
   test('shows "No definition found." when the API returns an empty array', async () => {
     await goToStudyAndAddGreekWord(buildFetchMock({ greekData: [] }));
-    fireEvent.change(screen.getByPlaceholderText(/G4102, 4102/i), { target: { value: 'G4102' } });
-    fireEvent.click(screen.getByRole('button', { name: /look up/i }));
+    fireEvent.change(screen.getByPlaceholderText(/G4102, H7225, 4102/i), { target: { value: 'G4102' } });
+    fireEvent.click(screen.getByRole('button', { name: /look up greek/i }));
     await screen.findByDisplayValue('No definition found.');
   });
 
@@ -326,8 +326,8 @@ describe('Greek word lookup', () => {
         return Promise.reject(new Error('Network error'));
       }),
     );
-    fireEvent.change(screen.getByPlaceholderText(/G4102, 4102/i), { target: { value: 'G4102' } });
-    fireEvent.click(screen.getByRole('button', { name: /look up/i }));
+    fireEvent.change(screen.getByPlaceholderText(/G4102, H7225, 4102/i), { target: { value: 'G4102' } });
+    fireEvent.click(screen.getByRole('button', { name: /look up greek/i }));
     await screen.findByDisplayValue('Lookup failed.');
   });
 
@@ -335,7 +335,7 @@ describe('Greek word lookup', () => {
     const fetchSpy = buildFetchMock();
     await goToStudyAndAddGreekWord(fetchSpy);
     const callCountBefore = fetchSpy.mock.calls.length;
-    fireEvent.click(screen.getByRole('button', { name: /look up/i }));
+    fireEvent.click(screen.getByRole('button', { name: /look up greek/i }));
     await waitFor(() => {
       expect(fetchSpy.mock.calls.length).toBe(callCountBefore);
     });
@@ -343,10 +343,10 @@ describe('Greek word lookup', () => {
 
   test('removes a Greek word entry', async () => {
     await goToStudyAndAddGreekWord();
-    expect(screen.getByPlaceholderText(/G4102, 4102/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/G4102, H7225, 4102/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
     await waitFor(() => {
-      expect(screen.queryByPlaceholderText(/G4102, 4102/i)).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText(/G4102, H7225, 4102/i)).not.toBeInTheDocument();
     });
   });
 });
