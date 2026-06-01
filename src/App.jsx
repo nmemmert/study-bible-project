@@ -109,15 +109,72 @@ export const makeId = () => crypto.randomUUID?.() ?? `${Date.now()}-${Math.rando
 // ---------------------------------------------------------------------------
 
 export function migrateChunk(chunk) {
-  if (chunk.observation !== undefined) return chunk; // already new format
+  if (chunk.observation !== undefined) {
+    return {
+      ...chunk,
+      spilloverEndVerse: Number.isInteger(chunk.spilloverEndVerse) ? chunk.spilloverEndVerse : null,
+    }; // already new format
+  }
   return {
     ...chunk,
     observation: chunk.notes ?? '',
     interpretation: '',
     application: '',
     crossReferences: [],
+    spilloverEndVerse: null,
     notes: undefined,
   };
+}
+
+function chunkSpansNextChapter(project, startChapterIndex, chunk) {
+  if (!project || !Array.isArray(project.chapters)) return false;
+  if (!Number.isInteger(chunk?.spilloverEndVerse)) return false;
+  return startChapterIndex >= 0 && startChapterIndex < project.chapters.length - 1;
+}
+
+function formatChunkReference(project, startChapterIndex, chunk, separator = '-') {
+  if (!project || !chunk) return '';
+  const startChapter = project.chapters?.[startChapterIndex];
+  if (!startChapter) return '';
+
+  if (chunkSpansNextChapter(project, startChapterIndex, chunk)) {
+    const nextChapter = project.chapters[startChapterIndex + 1];
+    return `${startChapter.book} ${startChapter.chapter}:${chunk.startVerse}${separator}${nextChapter.chapter}:${chunk.spilloverEndVerse}`;
+  }
+
+  if (chunk.startVerse === chunk.endVerse) {
+    return `${startChapter.book} ${startChapter.chapter}:${chunk.startVerse}`;
+  }
+  return `${startChapter.book} ${startChapter.chapter}:${chunk.startVerse}${separator}${chunk.endVerse}`;
+}
+
+function getChunkVerseEntries(project, startChapterIndex, chunk) {
+  if (!project || !chunk) return [];
+  const startChapter = project.chapters?.[startChapterIndex];
+  if (!startChapter) return [];
+
+  const startVerses = (startChapter.verses ?? [])
+    .filter((verse) => verse.number >= chunk.startVerse && verse.number <= chunk.endVerse)
+    .map((verse) => ({
+      book: startChapter.book,
+      chapter: startChapter.chapter,
+      ...verse,
+    }));
+
+  if (!chunkSpansNextChapter(project, startChapterIndex, chunk)) {
+    return startVerses;
+  }
+
+  const nextChapter = project.chapters[startChapterIndex + 1];
+  const spilloverVerses = (nextChapter.verses ?? [])
+    .filter((verse) => verse.number >= 1 && verse.number <= chunk.spilloverEndVerse)
+    .map((verse) => ({
+      book: nextChapter.book,
+      chapter: nextChapter.chapter,
+      ...verse,
+    }));
+
+  return [...startVerses, ...spilloverVerses];
 }
 
 export function migrateProject(raw) {
@@ -570,6 +627,9 @@ const App = () => {
   const [loadingChapter, setLoadingChapter] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
+  const [typedChunkStart, setTypedChunkStart] = useState('');
+  const [typedChunkEnd, setTypedChunkEnd] = useState('');
+  const [typedChunkBulk, setTypedChunkBulk] = useState('');
   const saveTimerRef = useRef(null);
   const [syncStatus, setSyncStatus] = useState('');   // '' | 'syncing' | 'synced' | 'error'
   const [remoteOnlyProjects, setRemoteOnlyProjects] = useState([]); // projects on server not in localStorage
@@ -820,6 +880,155 @@ const App = () => {
       return;
     }
     addChunkToChapter(activeChapterIndex, start, end);
+  };
+
+  const addChunkRanges = (ranges) => {
+    if (!project || !activeChapter || ranges.length === 0) {
+      return { addedCount: 0, skippedCount: 0 };
+    }
+
+    let addedCount = 0;
+    let skippedCount = 0;
+    let lastAddedChunkId = null;
+
+    updateProject((current) => {
+      const chapters = current.chapters.map((ch, idx) => {
+        if (idx !== activeChapterIndex) return ch;
+        const existing = new Set(ch.chunks.map((c) => `${c.startVerse}-${c.endVerse}`));
+        const newChunks = [];
+
+        ranges.forEach(({ start, end }) => {
+          const key = `${start}-${end}`;
+          if (existing.has(key)) {
+            skippedCount += 1;
+            return;
+          }
+          const newChunk = {
+            id: makeId(),
+            startVerse: start,
+            endVerse: end,
+            observation: '',
+            interpretation: '',
+            application: '',
+            crossReferences: [],
+            greekWords: [],
+          };
+          existing.add(key);
+          newChunks.push(newChunk);
+          addedCount += 1;
+          lastAddedChunkId = newChunk.id;
+        });
+
+        return newChunks.length > 0
+          ? { ...ch, chunks: [...ch.chunks, ...newChunks] }
+          : ch;
+      });
+
+      return {
+        ...current,
+        chapters,
+        selectedChunkId: lastAddedChunkId ?? current.selectedChunkId,
+      };
+    });
+
+    return { addedCount, skippedCount };
+  };
+
+  const addTypedChunk = () => {
+    if (!activeChapter) return;
+    const start = Number.parseInt(typedChunkStart, 10);
+    const end = Number.parseInt(typedChunkEnd, 10);
+    const maxVerse = activeChapter.verses.at(-1)?.number ?? 0;
+
+    if (!Number.isInteger(start) || !Number.isInteger(end)) {
+      setStatusMessage('Type a valid start and end verse.');
+      window.setTimeout(() => setStatusMessage(''), 2200);
+      return;
+    }
+    if (start < 1 || end < 1 || start > maxVerse || end > maxVerse) {
+      setStatusMessage(`Verse range must be between 1 and ${maxVerse}.`);
+      window.setTimeout(() => setStatusMessage(''), 2200);
+      return;
+    }
+    if (start > end) {
+      setStatusMessage('Start verse must be less than or equal to end verse.');
+      window.setTimeout(() => setStatusMessage(''), 2200);
+      return;
+    }
+
+    const { addedCount } = addChunkRanges([{ start, end }]);
+    if (addedCount === 0) {
+      setStatusMessage('That chunk already exists.');
+      window.setTimeout(() => setStatusMessage(''), 2200);
+      return;
+    }
+
+    setTypedChunkStart('');
+    setTypedChunkEnd('');
+  };
+
+  const addBulkTypedChunks = () => {
+    if (!activeChapter) return;
+    const raw = typedChunkBulk.trim();
+    if (!raw) {
+      setStatusMessage('Type chunk ranges first. Example: 1-6, 7-12');
+      window.setTimeout(() => setStatusMessage(''), 2200);
+      return;
+    }
+
+    const maxVerse = activeChapter.verses.at(-1)?.number ?? 0;
+    const parts = raw
+      .split(/[\n,;]+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    const validRanges = [];
+    let invalidCount = 0;
+
+    parts.forEach((part) => {
+      const single = /^(\d+)$/.exec(part);
+      if (single) {
+        const v = Number.parseInt(single[1], 10);
+        if (v >= 1 && v <= maxVerse) {
+          validRanges.push({ start: v, end: v });
+        } else {
+          invalidCount += 1;
+        }
+        return;
+      }
+
+      const range = /^(\d+)\s*-\s*(\d+)$/.exec(part);
+      if (!range) {
+        invalidCount += 1;
+        return;
+      }
+
+      const start = Number.parseInt(range[1], 10);
+      const end = Number.parseInt(range[2], 10);
+      if (start < 1 || end < 1 || start > end || start > maxVerse || end > maxVerse) {
+        invalidCount += 1;
+        return;
+      }
+      validRanges.push({ start, end });
+    });
+
+    if (validRanges.length === 0) {
+      setStatusMessage(`No valid ranges found. Use 1-${maxVerse} and format like 1-6, 7-12.`);
+      window.setTimeout(() => setStatusMessage(''), 2600);
+      return;
+    }
+
+    const { addedCount, skippedCount } = addChunkRanges(validRanges);
+    const notes = [];
+    if (addedCount > 0) notes.push(`Added ${addedCount} chunk${addedCount > 1 ? 's' : ''}`);
+    if (skippedCount > 0) notes.push(`skipped ${skippedCount} duplicate${skippedCount > 1 ? 's' : ''}`);
+    if (invalidCount > 0) notes.push(`ignored ${invalidCount} invalid`);
+    setStatusMessage(notes.join(' • '));
+    window.setTimeout(() => setStatusMessage(''), 2800);
+
+    if (addedCount > 0) {
+      setTypedChunkBulk('');
+    }
   };
 
   const handleVerseClick = (verseNumber, event) => {
@@ -1857,7 +2066,7 @@ const restoreRemoteProject = async (id) => {
                       </h2>
                     </div>
                     <div className="rounded-2xl bg-slate-100 px-3 py-2 text-sm text-slate-700">
-                      {statusMessage || 'Shift-click a second verse to create a chunk.'}
+                      {statusMessage || 'Click/shift-click, or type a verse range, to create a chunk.'}
                     </div>
                   </div>
                   <div className="mt-6 grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
@@ -1897,6 +2106,65 @@ const restoreRemoteProject = async (id) => {
                       <div className="flex items-center justify-between gap-3">
                         <h3 className="text-sm font-semibold text-slate-900">Chunks</h3>
                         <span className="text-xs text-slate-500">{activeChapter.chunks.length} created</span>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Type chunk range</p>
+                        <div className="mt-2 flex items-end gap-2">
+                          <label className="flex-1 text-xs text-slate-500">
+                            Start
+                            <input
+                              type="number"
+                              min="1"
+                              max={activeChapter.verses.at(-1)?.number ?? 1}
+                              value={typedChunkStart}
+                              onChange={(e) => setTypedChunkStart(e.target.value)}
+                              className="mt-1 block w-full rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                            />
+                          </label>
+                          <label className="flex-1 text-xs text-slate-500">
+                            End
+                            <input
+                              type="number"
+                              min="1"
+                              max={activeChapter.verses.at(-1)?.number ?? 1}
+                              value={typedChunkEnd}
+                              onChange={(e) => setTypedChunkEnd(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  addTypedChunk();
+                                }
+                              }}
+                              className="mt-1 block w-full rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={addTypedChunk}
+                            className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
+                          >
+                            Add
+                          </button>
+                        </div>
+                        <div className="mt-3">
+                          <label className="text-xs text-slate-500">
+                            Bulk ranges (comma or new line)
+                            <textarea
+                              rows={2}
+                              value={typedChunkBulk}
+                              onChange={(e) => setTypedChunkBulk(e.target.value)}
+                              placeholder="1-6, 7-12, 13-20"
+                              className="mt-1 block w-full resize-y rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={addBulkTypedChunks}
+                            className="mt-2 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                          >
+                            Add All Ranges
+                          </button>
+                        </div>
                       </div>
                       <div className="space-y-3 max-h-[520px] overflow-y-auto scrollbar-thin">
                         {activeChapter.chunks.length === 0 ? (
