@@ -20,6 +20,45 @@ import {
 } from './syncService.js';
 
 const bookOptions = [
+  { name: 'Genesis', abbrev: 'GEN' },
+  { name: 'Exodus', abbrev: 'EXO' },
+  { name: 'Leviticus', abbrev: 'LEV' },
+  { name: 'Numbers', abbrev: 'NUM' },
+  { name: 'Deuteronomy', abbrev: 'DEU' },
+  { name: 'Joshua', abbrev: 'JOS' },
+  { name: 'Judges', abbrev: 'JDG' },
+  { name: 'Ruth', abbrev: 'RUT' },
+  { name: '1 Samuel', abbrev: '1SA' },
+  { name: '2 Samuel', abbrev: '2SA' },
+  { name: '1 Kings', abbrev: '1KI' },
+  { name: '2 Kings', abbrev: '2KI' },
+  { name: '1 Chronicles', abbrev: '1CH' },
+  { name: '2 Chronicles', abbrev: '2CH' },
+  { name: 'Ezra', abbrev: 'EZR' },
+  { name: 'Nehemiah', abbrev: 'NEH' },
+  { name: 'Esther', abbrev: 'EST' },
+  { name: 'Job', abbrev: 'JOB' },
+  { name: 'Psalms', abbrev: 'PSA' },
+  { name: 'Proverbs', abbrev: 'PRO' },
+  { name: 'Ecclesiastes', abbrev: 'ECC' },
+  { name: 'Song', abbrev: 'SNG' },
+  { name: 'Isaiah', abbrev: 'ISA' },
+  { name: 'Jeremiah', abbrev: 'JER' },
+  { name: 'Lamentations', abbrev: 'LAM' },
+  { name: 'Ezekiel', abbrev: 'EZK' },
+  { name: 'Daniel', abbrev: 'DAN' },
+  { name: 'Hosea', abbrev: 'HOS' },
+  { name: 'Joel', abbrev: 'JOL' },
+  { name: 'Amos', abbrev: 'AMO' },
+  { name: 'Obadiah', abbrev: 'OBA' },
+  { name: 'Jonah', abbrev: 'JON' },
+  { name: 'Micah', abbrev: 'MIC' },
+  { name: 'Nahum', abbrev: 'NAM' },
+  { name: 'Habakkuk', abbrev: 'HAB' },
+  { name: 'Zephaniah', abbrev: 'ZEP' },
+  { name: 'Haggai', abbrev: 'HAG' },
+  { name: 'Zechariah', abbrev: 'ZEC' },
+  { name: 'Malachi', abbrev: 'MAL' },
   { name: 'Matthew', abbrev: 'MAT' },
   { name: 'Mark', abbrev: 'MRK' },
   { name: 'Luke', abbrev: 'LUK' },
@@ -536,6 +575,7 @@ const App = () => {
   const [remoteOnlyProjects, setRemoteOnlyProjects] = useState([]); // projects on server not in localStorage
   const [staleLocalProjects, setStaleLocalProjects] = useState([]); // projects where server is newer
   const [suggestingGreekForChunkId, setSuggestingGreekForChunkId] = useState(null);
+  const [suggestingHebrewForChunkId, setSuggestingHebrewForChunkId] = useState(null);
   // suggestModal: null | { chunkId, words: [{ strongKey, lexeme, translit, def }] }
   const [suggestModal, setSuggestModal] = useState(null);
   const [suggestSelection, setSuggestSelection] = useState(new Set());
@@ -929,6 +969,9 @@ const App = () => {
   // Cache for the NT Strong's→English gloss map (from macula-greek dataset), loaded once
   const _glossRef = useRef(null);
   const _glossLoadingRef = useRef(null);
+  // Cache for the Hebrew Strong's dictionary (loaded once)
+  const _hebrewDictRef = useRef(null);
+  const _hebrewDictLoadingRef = useRef(null);
 
   const loadNtGloss = async () => {
     if (_glossRef.current) return _glossRef.current;
@@ -954,6 +997,24 @@ const App = () => {
         return data;
       });
     return _concordanceLoadingRef.current;
+  };
+
+  const loadHebrewDict = async () => {
+    if (_hebrewDictRef.current) return _hebrewDictRef.current;
+    if (_hebrewDictLoadingRef.current) return _hebrewDictLoadingRef.current;
+    _hebrewDictLoadingRef.current = fetch(
+      'https://cdn.jsdelivr.net/gh/openscriptures/strongs@master/hebrew/strongs-hebrew-dictionary.js',
+    )
+      .then((res) => res.text())
+      .then((text) => {
+        const start = text.indexOf('{');
+        const end = text.lastIndexOf('}') + 1;
+        const dict = JSON.parse(text.slice(start, end));
+        _hebrewDictRef.current = dict;
+        _hebrewDictLoadingRef.current = null;
+        return dict;
+      });
+    return _hebrewDictLoadingRef.current;
   };
 
   // Common Greek NT function words to pre-uncheck in the picker
@@ -1028,13 +1089,111 @@ const App = () => {
           .filter((w) => !GREEK_FUNCTION_WORDS.has(w.strongKey))
           .map((w) => w.strongKey)
       );
-      setSuggestModal({ chunkId, words: modalWords });
+      setSuggestModal({
+        chunkId,
+        language: 'greek',
+        helperText: "Content words are pre-checked. Uncheck any you don't need.",
+        words: modalWords,
+      });
       setSuggestSelection(preSelected);
     } catch (err) {
       setStatusMessage(`Suggest failed: ${err.message}`);
       window.setTimeout(() => setStatusMessage(''), 3000);
     } finally {
       setSuggestingGreekForChunkId(null);
+    }
+  };
+
+  const ENGLISH_STOP_WORDS = new Set([
+    'the', 'and', 'for', 'that', 'with', 'this', 'from', 'were', 'was', 'have', 'has',
+    'had', 'are', 'but', 'not', 'you', 'your', 'his', 'her', 'their', 'they', 'them',
+    'our', 'out', 'into', 'over', 'under', 'upon', 'then', 'than', 'who', 'what', 'when',
+    'where', 'why', 'how', 'also', 'there', 'here', 'all', 'any', 'one', 'two', 'three',
+    'he', 'she', 'it', 'we', 'i', 'me', 'my', 'mine', 'ours', 'theirs', 'its',
+  ]);
+
+  const suggestHebrewWordsForChunk = async (chunkId) => {
+    const chunk = allChunks.find((c) => c.id === chunkId);
+    const chapter = project?.chapters.find((ch) =>
+      ch.chunks.some((c) => c.id === chunkId)
+    );
+    if (!chunk || !chapter) return;
+    if (NT_BOOK_NUMBER[chapter.bookAbbrev]) {
+      setStatusMessage('Hebrew suggestions are for Old Testament passages.');
+      window.setTimeout(() => setStatusMessage(''), 2500);
+      return;
+    }
+
+    setSuggestingHebrewForChunkId(chunkId);
+    try {
+      const dict = await loadHebrewDict();
+      const versesInChunk = (chapter.verses ?? [])
+        .filter((v) => v.number >= chunk.startVerse && v.number <= chunk.endVerse)
+        .map((v) => v.text)
+        .join(' ')
+        .toLowerCase();
+
+      const candidateWords = Array.from(new Set(
+        versesInChunk
+          .replace(/[^a-z\s]/g, ' ')
+          .split(/\s+/)
+          .map((w) => w.trim())
+          .filter((w) => w.length >= 4 && !ENGLISH_STOP_WORDS.has(w)),
+      ));
+
+      if (candidateWords.length === 0) {
+        setStatusMessage('No Hebrew suggestion candidates found in this passage.');
+        window.setTimeout(() => setStatusMessage(''), 2500);
+        return;
+      }
+
+      const existingNumbers = new Set(
+        chunk.greekWords.map((w) => (w.strongNumber || '').toUpperCase()).filter(Boolean)
+      );
+
+      const seen = new Set();
+      const modalWords = [];
+      const entries = Object.entries(dict);
+
+      for (const token of candidateWords) {
+        const match = entries.find(([, entry]) => {
+          const defs = `${entry.kjv_def || ''} ${entry.strongs_def || ''}`.toLowerCase();
+          return defs.split(/[,;()\s]+/).includes(token);
+        });
+        if (!match) continue;
+        const [strongKey, entry] = match;
+        if (!/^H\d+$/i.test(strongKey)) continue;
+        const normalized = strongKey.toUpperCase();
+        if (existingNumbers.has(normalized) || seen.has(normalized)) continue;
+        seen.add(normalized);
+        modalWords.push({
+          strongKey: normalized,
+          lexeme: entry?.lemma ?? '',
+          translit: entry?.xlit ?? '',
+          def: entry?.kjv_def ?? 'No definition found.',
+          entry,
+        });
+        if (modalWords.length >= 20) break;
+      }
+
+      if (modalWords.length === 0) {
+        setStatusMessage('No Hebrew suggestions found from this passage text.');
+        window.setTimeout(() => setStatusMessage(''), 2500);
+        return;
+      }
+
+      setSuggestModal({
+        chunkId,
+        language: 'hebrew',
+        helperText: 'Heuristic matches from passage text; uncheck anything not useful.',
+        words: modalWords,
+      });
+      setSuggestSelection(new Set(modalWords.map((w) => w.strongKey)));
+    } catch (err) {
+      setStatusMessage(`Hebrew suggest failed: ${err.message}`);
+      window.setTimeout(() => setStatusMessage(''), 3000);
+    } finally {
+      setSuggestingHebrewForChunkId(null);
     }
   };
 
@@ -1065,7 +1224,8 @@ const App = () => {
           ),
         })),
       }));
-      setStatusMessage(`Added ${newWords.length} Greek word${newWords.length > 1 ? 's' : ''}.`);
+      const label = suggestModal?.language === 'hebrew' ? 'Hebrew' : 'Greek';
+      setStatusMessage(`Added ${newWords.length} ${label} word${newWords.length > 1 ? 's' : ''}.`);
       window.setTimeout(() => setStatusMessage(''), 2000);
     }
     setSuggestModal(null);
@@ -1077,14 +1237,22 @@ const App = () => {
 
   const externalLookupLinks = (query) => {
     const raw = query.trim();
-    const normalized = /^\d+$/.test(raw) ? `G${raw}` : raw.toUpperCase();
-    const isStrongs = /^G\d+$/.test(normalized);
-    const num = isStrongs ? normalized.slice(1) : null;
-    if (isStrongs && num) {
+    const normalized = raw.toUpperCase();
+    const isGreek = /^G\d+$/.test(normalized);
+    const isHebrew = /^H\d+$/.test(normalized);
+    const num = (isGreek || isHebrew) ? normalized.slice(1) : null;
+    if (isGreek && num) {
       return [
         { label: 'BibleHub', url: `https://biblehub.com/greek/${num}.htm` },
         { label: 'Blue Letter Bible', url: `https://www.blueletterbible.org/lexicon/g${num}/esv/0-1/` },
         { label: 'StudyLight', url: `https://www.studylight.org/lexicons/eng/greek/${num}.html` },
+      ];
+    }
+    if (isHebrew && num) {
+      return [
+        { label: 'BibleHub', url: `https://biblehub.com/hebrew/${num}.htm` },
+        { label: 'Blue Letter Bible', url: `https://www.blueletterbible.org/lexicon/h${num}/kjv/wlc/0-1/` },
+        { label: 'StudyLight', url: `https://www.studylight.org/lexicons/eng/hebrew/${num}.html` },
       ];
     }
     const enc = encodeURIComponent(raw);
@@ -1171,15 +1339,20 @@ const App = () => {
     return null;
   };
 
-  const lookupGreekWord = async (chunkId, wordId) => {
+  const lookupWord = async (chunkId, wordId, language = 'greek') => {
     const chunk = allChunks.find((c) => c.id === chunkId);
     const word = chunk?.greekWords.find((w) => w.id === wordId);
     if (!word || !word.query.trim()) return;
     updateChunkWord(chunkId, wordId, { loading: true });
     try {
-      // Normalize bare numbers to G prefix: "4102" → "G4102" (Greek, not Hebrew H4102).
+      // Normalize bare numbers based on selected lookup language.
       const raw = word.query.trim();
-      const normalized = /^\d+$/.test(raw) ? `G${raw}` : /^[gGhH]\d+$/.test(raw) ? raw.toUpperCase() : raw;
+      const inferredPrefix = language === 'hebrew' ? 'H' : 'G';
+      const normalized = /^\d+$/.test(raw)
+        ? `${inferredPrefix}${raw}`
+        : /^[gGhH]\d+$/.test(raw)
+          ? raw.toUpperCase()
+          : raw;
 
       const [definitions, gloss] = await Promise.all([
         fetchBollsDefinition(normalized),
@@ -1987,8 +2160,8 @@ const restoreRemoteProject = async (id) => {
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
                   <div className="mb-5 flex items-center justify-between gap-4">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-900">Greek Word Studies</h3>
-                      <p className="text-sm text-slate-500">Add lexical notes, look up Strong's entries.</p>
+                      <h3 className="text-sm font-semibold text-slate-900">Word Studies (Greek/Hebrew)</h3>
+                      <p className="text-sm text-slate-500">Add lexical notes, look up Strong's entries, and suggest words from the passage.</p>
                     </div>
                     <div className="flex gap-2">
                       <button
@@ -2002,6 +2175,15 @@ const restoreRemoteProject = async (id) => {
                       </button>
                       <button
                         type="button"
+                        onClick={() => suggestHebrewWordsForChunk(selectedChunk.id)}
+                        disabled={suggestingHebrewForChunkId === selectedChunk.id}
+                        className="rounded-full bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-800 border border-emerald-300 transition hover:bg-emerald-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Suggest Hebrew words for Old Testament passages"
+                      >
+                        {suggestingHebrewForChunkId === selectedChunk.id ? 'Suggesting…' : '✦ Suggest Hebrew'}
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => addGreekWord(selectedChunk.id)}
                         className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
                       >
@@ -2012,7 +2194,7 @@ const restoreRemoteProject = async (id) => {
                   <div className="space-y-4">
                     {selectedChunk.greekWords.length === 0 ? (
                       <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500">
-                        No Greek words yet. Add one to begin a lookup.
+                        No words yet. Add one to begin a lookup.
                       </div>
                     ) : (
                       selectedChunk.greekWords.map((word) => (
@@ -2025,20 +2207,29 @@ const restoreRemoteProject = async (id) => {
                                 value={word.query}
                                 onChange={(e) => updateChunkWord(selectedChunk.id, word.id, { query: e.target.value })}
                                 onKeyDown={(e) => {
-                                  if (e.key === 'Enter') { e.preventDefault(); lookupGreekWord(selectedChunk.id, word.id); }
+                                  if (e.key === 'Enter') { e.preventDefault(); lookupWord(selectedChunk.id, word.id, 'greek'); }
                                 }}
-                                placeholder="G4102, 4102, or faith (Greek)"
+                                placeholder="G4102, H7225, 4102, or a word"
                                 className="mt-2 block w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
                               />
                             </label>
                             <div className="flex items-end justify-between gap-3">
-                              <button
-                                type="button"
-                                onClick={() => lookupGreekWord(selectedChunk.id, word.id)}
-                                className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-                              >
-                                {word.loading ? 'Looking up…' : 'Look Up'}
-                              </button>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => lookupWord(selectedChunk.id, word.id, 'greek')}
+                                  className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                                >
+                                  {word.loading ? 'Looking up...' : 'Look Up Greek'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => lookupWord(selectedChunk.id, word.id, 'hebrew')}
+                                  className="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+                                >
+                                  {word.loading ? 'Looking up...' : 'Look Up Hebrew'}
+                                </button>
+                              </div>
                               <button
                                 type="button"
                                 onClick={() => removeGreekWord(selectedChunk.id, word.id)}
@@ -2181,8 +2372,8 @@ const restoreRemoteProject = async (id) => {
           <div className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-3xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
               <div>
-                <h2 className="text-base font-semibold text-slate-900">Select Greek words to add</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Content words are pre-checked. Uncheck any you don't need.</p>
+                <h2 className="text-base font-semibold text-slate-900">Select {suggestModal.language === 'hebrew' ? 'Hebrew' : 'Greek'} words to add</h2>
+                <p className="text-xs text-slate-500 mt-0.5">{suggestModal.helperText || "Content words are pre-checked. Uncheck any you don't need."}</p>
               </div>
               <button
                 onClick={() => { setSuggestModal(null); setSuggestSelection(new Set()); }}
