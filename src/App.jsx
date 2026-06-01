@@ -129,7 +129,10 @@ export function migrateChunk(chunk) {
 function chunkSpansNextChapter(project, startChapterIndex, chunk) {
   if (!project || !Array.isArray(project.chapters)) return false;
   if (!Number.isInteger(chunk?.spilloverEndVerse)) return false;
-  return startChapterIndex >= 0 && startChapterIndex < project.chapters.length - 1;
+  if (startChapterIndex < 0 || startChapterIndex >= project.chapters.length - 1) return false;
+  const startChapter = project.chapters[startChapterIndex];
+  const nextChapter = project.chapters[startChapterIndex + 1];
+  return startChapter?.bookAbbrev && startChapter.bookAbbrev === nextChapter?.bookAbbrev;
 }
 
 function formatChunkReference(project, startChapterIndex, chunk, separator = '-') {
@@ -323,15 +326,12 @@ export function buildExportHtml(project) {
 
   const chapters = Array.isArray(project.chapters) ? project.chapters : [];
 
-  const chunksHtml = chapters.map((ch) => {
+  const chunksHtml = chapters.map((ch, chapterIndex) => {
     const chapterHeader = `<h2 class="chapter-heading">${ch.book} ${ch.chapter}</h2>`;
     const chunkSections = ch.chunks.map((chunk) => {
-      const scripture = chunk.startVerse === chunk.endVerse
-        ? `${ch.book} ${ch.chapter}:${chunk.startVerse}`
-        : `${ch.book} ${ch.chapter}:${chunk.startVerse}-${chunk.endVerse}`;
-      const versesText = ch.verses
-        .filter((verse) => verse.number >= chunk.startVerse && verse.number <= chunk.endVerse)
-        .map((verse) => `<p class="verse"><strong>${verse.number}</strong> ${verse.text}</p>`)
+      const scripture = formatChunkReference(project, chapterIndex, chunk, '-');
+      const versesText = getChunkVerseEntries(project, chapterIndex, chunk)
+        .map((verse) => `<p class="verse"><strong>${verse.chapter}:${verse.number}</strong> ${verse.text}</p>`)
         .join('');
 
       const observation = (chunk.observation ?? '').trim().replace(/\n/g, '<br />') || '<em>No observation.</em>';
@@ -516,16 +516,13 @@ PASSAGE: ${chapterLabel}
 `;
 
   let chunkIndex = 0;
-  const chunks = chapters.map((ch) => {
+  const chunks = chapters.map((ch, chapterIndex) => {
     return ch.chunks.map((chunk) => {
       chunkIndex += 1;
-      const ref = chunk.startVerse === chunk.endVerse
-        ? `${ch.book} ${ch.chapter}:${chunk.startVerse}`
-        : `${ch.book} ${ch.chapter}:${chunk.startVerse}–${chunk.endVerse}`;
+      const ref = formatChunkReference(project, chapterIndex, chunk, '–');
 
-      const verses = ch.verses
-        .filter((v) => v.number >= chunk.startVerse && v.number <= chunk.endVerse)
-        .map((v) => `${v.number} ${v.text}`)
+      const verses = getChunkVerseEntries(project, chapterIndex, chunk)
+        .map((v) => `${v.chapter}:${v.number} ${v.text}`)
         .join('\n');
 
       const observation = (chunk.observation ?? '').trim() || 'No observation.';
@@ -629,6 +626,8 @@ const App = () => {
   const [statusMessage, setStatusMessage] = useState('');
   const [typedChunkStart, setTypedChunkStart] = useState('');
   const [typedChunkEnd, setTypedChunkEnd] = useState('');
+  const [typedChunkNextEnd, setTypedChunkNextEnd] = useState('');
+  const [clickedSpanNextEnd, setClickedSpanNextEnd] = useState('');
   const [typedChunkBulk, setTypedChunkBulk] = useState('');
   const saveTimerRef = useRef(null);
   const [syncStatus, setSyncStatus] = useState('');   // '' | 'syncing' | 'synced' | 'error'
@@ -685,9 +684,15 @@ const App = () => {
   const allChunks = project ? project.chapters.flatMap((ch) => ch.chunks) : [];
   const activeChapter = project?.chapters[activeChapterIndex] ?? null;
   const selectedChunk = allChunks.find((c) => c.id === project?.selectedChunkId) ?? allChunks[0] ?? null;
-  const selectedChunkChapter = selectedChunk
-    ? project.chapters.find((ch) => ch.chunks.some((c) => c.id === selectedChunk.id))
+  const selectedChunkChapterIndex = selectedChunk
+    ? project.chapters.findIndex((ch) => ch.chunks.some((c) => c.id === selectedChunk.id))
+    : -1;
+  const selectedChunkChapter = selectedChunkChapterIndex >= 0
+    ? project.chapters[selectedChunkChapterIndex]
     : null;
+  const selectedChunkVerses = selectedChunk
+    ? getChunkVerseEntries(project, selectedChunkChapterIndex, selectedChunk)
+    : [];
   const selectedChunkGlobalIndex = allChunks.findIndex((c) => c.id === project?.selectedChunkId);
 
   useEffect(() => {
@@ -845,16 +850,21 @@ const App = () => {
   // Chunk CRUD (operates on activeChapter in setup view, on selectedChunkChapter in study)
   // ---------------------------------------------------------------------------
 
-  const addChunkToChapter = (chapterIndex, start, end) => {
+  const addChunkToChapter = (chapterIndex, start, end, spilloverEndVerse = null) => {
     updateProject((current) => {
       const chapters = current.chapters.map((ch, idx) => {
         if (idx !== chapterIndex) return ch;
-        const overlap = ch.chunks.find((c) => c.startVerse === start && c.endVerse === end);
+        const overlap = ch.chunks.find(
+          (c) => c.startVerse === start
+            && c.endVerse === end
+            && (c.spilloverEndVerse ?? null) === (spilloverEndVerse ?? null),
+        );
         if (overlap) return ch;
         const newChunk = {
           id: makeId(),
           startVerse: start,
           endVerse: end,
+          spilloverEndVerse,
           observation: '',
           interpretation: '',
           application: '',
@@ -869,17 +879,21 @@ const App = () => {
     });
   };
 
-  const addChunk = (start, end) => {
+  const addChunk = (start, end, spilloverEndVerse = null) => {
     if (!project) return;
     const chapter = activeChapter;
     if (!chapter) return;
-    const overlap = chapter.chunks.find((c) => c.startVerse === start && c.endVerse === end);
+    const overlap = chapter.chunks.find(
+      (c) => c.startVerse === start
+        && c.endVerse === end
+        && (c.spilloverEndVerse ?? null) === (spilloverEndVerse ?? null),
+    );
     if (overlap) {
       setStatusMessage('That chunk already exists.');
       window.setTimeout(() => setStatusMessage(''), 1800);
       return;
     }
-    addChunkToChapter(activeChapterIndex, start, end);
+    addChunkToChapter(activeChapterIndex, start, end, spilloverEndVerse);
   };
 
   const addChunkRanges = (ranges) => {
@@ -894,11 +908,13 @@ const App = () => {
     updateProject((current) => {
       const chapters = current.chapters.map((ch, idx) => {
         if (idx !== activeChapterIndex) return ch;
-        const existing = new Set(ch.chunks.map((c) => `${c.startVerse}-${c.endVerse}`));
+        const existing = new Set(
+          ch.chunks.map((c) => `${c.startVerse}-${c.endVerse}-${c.spilloverEndVerse ?? ''}`),
+        );
         const newChunks = [];
 
-        ranges.forEach(({ start, end }) => {
-          const key = `${start}-${end}`;
+        ranges.forEach(({ start, end, spilloverEndVerse = null }) => {
+          const key = `${start}-${end}-${spilloverEndVerse ?? ''}`;
           if (existing.has(key)) {
             skippedCount += 1;
             return;
@@ -907,6 +923,7 @@ const App = () => {
             id: makeId(),
             startVerse: start,
             endVerse: end,
+            spilloverEndVerse,
             observation: '',
             interpretation: '',
             application: '',
@@ -938,7 +955,11 @@ const App = () => {
     if (!activeChapter) return;
     const start = Number.parseInt(typedChunkStart, 10);
     const end = Number.parseInt(typedChunkEnd, 10);
+    const nextEndRaw = typedChunkNextEnd.trim();
+    const nextEnd = nextEndRaw ? Number.parseInt(nextEndRaw, 10) : null;
     const maxVerse = activeChapter.verses.at(-1)?.number ?? 0;
+    const nextChapter = project?.chapters?.[activeChapterIndex + 1] ?? null;
+    const nextMaxVerse = nextChapter?.verses?.at(-1)?.number ?? 0;
 
     if (!Number.isInteger(start) || !Number.isInteger(end)) {
       setStatusMessage('Type a valid start and end verse.');
@@ -956,7 +977,30 @@ const App = () => {
       return;
     }
 
-    const { addedCount } = addChunkRanges([{ start, end }]);
+    if (nextEndRaw) {
+      if (!nextChapter) {
+        setStatusMessage('Add the next chapter first to span chunks across chapters.');
+        window.setTimeout(() => setStatusMessage(''), 2400);
+        return;
+      }
+      if (nextChapter.bookAbbrev !== activeChapter.bookAbbrev) {
+        setStatusMessage('Chapter spanning only works into the next chapter of the same book.');
+        window.setTimeout(() => setStatusMessage(''), 2400);
+        return;
+      }
+      if (!Number.isInteger(nextEnd) || nextEnd < 1 || nextEnd > nextMaxVerse) {
+        setStatusMessage(`Next chapter end must be between 1 and ${nextMaxVerse}.`);
+        window.setTimeout(() => setStatusMessage(''), 2400);
+        return;
+      }
+      if (end !== maxVerse) {
+        setStatusMessage('To span chapters, set End to the last verse of this chapter.');
+        window.setTimeout(() => setStatusMessage(''), 2400);
+        return;
+      }
+    }
+
+    const { addedCount } = addChunkRanges([{ start, end, spilloverEndVerse: nextEnd }]);
     if (addedCount === 0) {
       setStatusMessage('That chunk already exists.');
       window.setTimeout(() => setStatusMessage(''), 2200);
@@ -965,6 +1009,7 @@ const App = () => {
 
     setTypedChunkStart('');
     setTypedChunkEnd('');
+    setTypedChunkNextEnd('');
   };
 
   const addBulkTypedChunks = () => {
@@ -977,6 +1022,8 @@ const App = () => {
     }
 
     const maxVerse = activeChapter.verses.at(-1)?.number ?? 0;
+    const nextChapter = project?.chapters?.[activeChapterIndex + 1] ?? null;
+    const nextMaxVerse = nextChapter?.verses?.at(-1)?.number ?? 0;
     const parts = raw
       .split(/[\n,;]+/)
       .map((part) => part.trim())
@@ -997,7 +1044,7 @@ const App = () => {
         return;
       }
 
-      const range = /^(\d+)\s*-\s*(\d+)$/.exec(part);
+      const range = /^(\d+)\s*-\s*(\d+)(?:\s*:\s*(\d+))?$/.exec(part);
       if (!range) {
         invalidCount += 1;
         return;
@@ -1005,11 +1052,22 @@ const App = () => {
 
       const start = Number.parseInt(range[1], 10);
       const end = Number.parseInt(range[2], 10);
+      const spilloverEndVerse = range[3] ? Number.parseInt(range[3], 10) : null;
       if (start < 1 || end < 1 || start > end || start > maxVerse || end > maxVerse) {
         invalidCount += 1;
         return;
       }
-      validRanges.push({ start, end });
+      if (spilloverEndVerse !== null) {
+        if (!nextChapter
+          || nextChapter.bookAbbrev !== activeChapter.bookAbbrev
+          || spilloverEndVerse < 1
+          || spilloverEndVerse > nextMaxVerse
+          || end !== maxVerse) {
+          invalidCount += 1;
+          return;
+        }
+      }
+      validRanges.push({ start, end, spilloverEndVerse });
     });
 
     if (validRanges.length === 0) {
@@ -1029,6 +1087,49 @@ const App = () => {
     if (addedCount > 0) {
       setTypedChunkBulk('');
     }
+  };
+
+  const addClickSpanChunk = () => {
+    if (!activeChapter || rangeStart === null) {
+      setStatusMessage('Click a start verse first, then set next chapter end.');
+      window.setTimeout(() => setStatusMessage(''), 2400);
+      return;
+    }
+
+    const nextChapter = project?.chapters?.[activeChapterIndex + 1] ?? null;
+    if (!nextChapter) {
+      setStatusMessage('Add the next chapter first to span into it.');
+      window.setTimeout(() => setStatusMessage(''), 2400);
+      return;
+    }
+    if (nextChapter.bookAbbrev !== activeChapter.bookAbbrev) {
+      setStatusMessage('Click-based spanning only works into the next chapter of the same book.');
+      window.setTimeout(() => setStatusMessage(''), 2600);
+      return;
+    }
+
+    const nextMaxVerse = nextChapter.verses.at(-1)?.number ?? 0;
+    const spilloverEndVerse = Number.parseInt(clickedSpanNextEnd, 10);
+    if (!Number.isInteger(spilloverEndVerse) || spilloverEndVerse < 1 || spilloverEndVerse > nextMaxVerse) {
+      setStatusMessage(`Next chapter end must be between 1 and ${nextMaxVerse}.`);
+      window.setTimeout(() => setStatusMessage(''), 2400);
+      return;
+    }
+
+    const start = rangeStart;
+    const end = activeChapter.verses.at(-1)?.number ?? start;
+    const { addedCount } = addChunkRanges([{ start, end, spilloverEndVerse }]);
+    if (addedCount === 0) {
+      setStatusMessage('That cross-chapter chunk already exists.');
+      window.setTimeout(() => setStatusMessage(''), 2400);
+      return;
+    }
+
+    setClickedSpanNextEnd('');
+    setRangeStart(null);
+    setRangeEnd(null);
+    setStatusMessage('Cross-chapter chunk added.');
+    window.setTimeout(() => setStatusMessage(''), 1800);
   };
 
   const handleVerseClick = (verseNumber, event) => {
@@ -1243,9 +1344,10 @@ const App = () => {
 
   const suggestGreekWordsForChunk = async (chunkId) => {
     const chunk = allChunks.find((c) => c.id === chunkId);
-    const chapter = project?.chapters.find((ch) =>
+    const chapterIndex = project?.chapters.findIndex((ch) =>
       ch.chunks.some((c) => c.id === chunkId)
-    );
+    ) ?? -1;
+    const chapter = chapterIndex >= 0 ? project.chapters[chapterIndex] : null;
     if (!chunk || !chapter) return;
     if (!NT_BOOK_NUMBER[chapter.bookAbbrev]) {
       setStatusMessage('Auto-suggest only works for New Testament books.');
@@ -1257,10 +1359,18 @@ const App = () => {
       const [concordance, dict, gloss] = await Promise.all([loadNtConcordance(), loadGreekDict(), loadNtGloss()]);
       const bookData = concordance[chapter.bookAbbrev] ?? {};
       const chapterData = bookData[chapter.chapter] ?? {};
+      const nextChapterData = chunkSpansNextChapter(project, chapterIndex, chunk)
+        ? bookData[project.chapters[chapterIndex + 1].chapter] ?? {}
+        : {};
 
       const strongsInRange = new Set();
       for (let v = chunk.startVerse; v <= chunk.endVerse; v++) {
         for (const s of chapterData[String(v)] ?? []) strongsInRange.add(s);
+      }
+      if (chunkSpansNextChapter(project, chapterIndex, chunk)) {
+        for (let v = 1; v <= chunk.spilloverEndVerse; v++) {
+          for (const s of nextChapterData[String(v)] ?? []) strongsInRange.add(s);
+        }
       }
 
       if (strongsInRange.size === 0) {
@@ -1323,9 +1433,10 @@ const App = () => {
 
   const suggestHebrewWordsForChunk = async (chunkId) => {
     const chunk = allChunks.find((c) => c.id === chunkId);
-    const chapter = project?.chapters.find((ch) =>
+    const chapterIndex = project?.chapters.findIndex((ch) =>
       ch.chunks.some((c) => c.id === chunkId)
-    );
+    ) ?? -1;
+    const chapter = chapterIndex >= 0 ? project.chapters[chapterIndex] : null;
     if (!chunk || !chapter) return;
     if (NT_BOOK_NUMBER[chapter.bookAbbrev]) {
       setStatusMessage('Hebrew suggestions are for Old Testament passages.');
@@ -1336,8 +1447,7 @@ const App = () => {
     setSuggestingHebrewForChunkId(chunkId);
     try {
       const dict = await loadHebrewDict();
-      const versesInChunk = (chapter.verses ?? [])
-        .filter((v) => v.number >= chunk.startVerse && v.number <= chunk.endVerse)
+      const versesInChunk = getChunkVerseEntries(project, chapterIndex, chunk)
         .map((v) => v.text)
         .join(' ')
         .toLowerCase();
@@ -1622,20 +1732,16 @@ const App = () => {
       }),
     ];
 
-    project.chapters.forEach((ch) => {
+    project.chapters.forEach((ch, chapterIndex) => {
       children.push(new Paragraph({ text: `${ch.book} ${ch.chapter}`, heading: HeadingLevel.HEADING_1 }));
       ch.chunks.forEach((chunk) => {
-        const scriptureHeading = chunk.startVerse === chunk.endVerse
-          ? `${ch.book} ${ch.chapter}:${chunk.startVerse}`
-          : `${ch.book} ${ch.chapter}:${chunk.startVerse}-${chunk.endVerse}`;
+        const scriptureHeading = formatChunkReference(project, chapterIndex, chunk, '-');
 
         children.push(new Paragraph({ text: scriptureHeading, heading: HeadingLevel.HEADING_2 }));
-        ch.verses
-          .filter((verse) => verse.number >= chunk.startVerse && verse.number <= chunk.endVerse)
-          .forEach((verse) => {
+        getChunkVerseEntries(project, chapterIndex, chunk).forEach((verse) => {
             children.push(new Paragraph({
               children: [
-                new TextRun({ text: `${verse.number}. `, bold: true }),
+                new TextRun({ text: `${verse.chapter}:${verse.number}. `, bold: true }),
                 new TextRun({ text: verse.text }),
               ],
             }));
@@ -1772,8 +1878,6 @@ const restoreRemoteProject = async (id) => {
     setErrorMessage('');
     setStatusMessage('');
   };
-
-  const verseLabel = (start, end) => (start === end ? `${start}` : `${start}-${end}`);
 
   // ---------------------------------------------------------------------------
   // Shared header
@@ -2081,9 +2185,18 @@ const restoreRemoteProject = async (id) => {
                             rangeStart !== null &&
                             verse.number >= Math.min(rangeStart, rangeEnd) &&
                             verse.number <= Math.max(rangeStart, rangeEnd);
-                          const inChunk = activeChapter.chunks.some(
+                          const inOwnChapterChunk = activeChapter.chunks.some(
                             (chunk) => verse.number >= chunk.startVerse && verse.number <= chunk.endVerse,
                           );
+                          const prevChapter = project?.chapters?.[activeChapterIndex - 1] ?? null;
+                          const inPrevChapterSpillover = prevChapter
+                            ? prevChapter.chunks.some((chunk) =>
+                              Number.isInteger(chunk.spilloverEndVerse)
+                              && prevChapter.bookAbbrev === activeChapter.bookAbbrev
+                              && verse.number <= chunk.spilloverEndVerse
+                            )
+                            : false;
+                          const inChunk = inOwnChapterChunk || inPrevChapterSpillover;
                           return (
                             <button
                               key={verse.number}
@@ -2138,6 +2251,18 @@ const restoreRemoteProject = async (id) => {
                               className="mt-1 block w-full rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
                             />
                           </label>
+                          <label className="flex-1 text-xs text-slate-500">
+                            Next ch end (optional)
+                            <input
+                              type="number"
+                              min="1"
+                              max={project?.chapters?.[activeChapterIndex + 1]?.verses?.at(-1)?.number ?? 1}
+                              value={typedChunkNextEnd}
+                              onChange={(e) => setTypedChunkNextEnd(e.target.value)}
+                              placeholder="e.g. 5"
+                              className="mt-1 block w-full rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                            />
+                          </label>
                           <button
                             type="button"
                             onClick={addTypedChunk}
@@ -2148,12 +2273,12 @@ const restoreRemoteProject = async (id) => {
                         </div>
                         <div className="mt-3">
                           <label className="text-xs text-slate-500">
-                            Bulk ranges (comma or new line)
+                            Bulk ranges (comma/new line; use `start-end:nextEnd` to span)
                             <textarea
                               rows={2}
                               value={typedChunkBulk}
                               onChange={(e) => setTypedChunkBulk(e.target.value)}
-                              placeholder="1-6, 7-12, 13-20"
+                              placeholder="1-6, 7-31:5, 6"
                               className="mt-1 block w-full resize-y rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
                             />
                           </label>
@@ -2163,6 +2288,37 @@ const restoreRemoteProject = async (id) => {
                             className="mt-2 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
                           >
                             Add All Ranges
+                          </button>
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Click-based chapter span</p>
+                        <p className="mt-1 text-xs text-slate-500">Click a start verse in this chapter, then choose where to end in the next chapter.</p>
+                        <div className="mt-2 flex items-end gap-2">
+                          <div className="flex-1 text-xs text-slate-500">
+                            Start
+                            <div className="mt-1 rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-2 text-sm text-slate-900">
+                              {rangeStart ?? 'Not selected'}
+                            </div>
+                          </div>
+                          <label className="flex-1 text-xs text-slate-500">
+                            Next ch end
+                            <input
+                              type="number"
+                              min="1"
+                              max={project?.chapters?.[activeChapterIndex + 1]?.verses?.at(-1)?.number ?? 1}
+                              value={clickedSpanNextEnd}
+                              onChange={(e) => setClickedSpanNextEnd(e.target.value)}
+                              placeholder="e.g. 5"
+                              className="mt-1 block w-full rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={addClickSpanChunk}
+                            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                          >
+                            Span Into Next
                           </button>
                         </div>
                       </div>
@@ -2183,7 +2339,7 @@ const restoreRemoteProject = async (id) => {
                                 className="mb-3 w-full text-left"
                               >
                                 <p className="text-sm font-semibold text-slate-900">
-                                  {activeChapter.book} {activeChapter.chapter}:{verseLabel(chunk.startVerse, chunk.endVerse)}
+                                  {formatChunkReference(project, activeChapterIndex, chunk, '–')}
                                 </p>
                                 <p className="mt-1 text-sm text-slate-600 truncate">
                                   {activeChapter.verses.find((v) => v.number === chunk.startVerse)?.text || ''}
@@ -2264,7 +2420,7 @@ const restoreRemoteProject = async (id) => {
               <h2 className="mt-2 text-xl font-semibold text-slate-900">{allChunks.length} chunks</h2>
             </div>
             <div className="space-y-6 max-h-[calc(100vh-260px)] overflow-y-auto scrollbar-thin">
-              {project?.chapters.map((ch) => (
+              {project?.chapters.map((ch, chapterIndex) => (
                 <div key={`${ch.bookAbbrev}-${ch.chapter}`}>
                   {project.chapters.length > 1 && (
                     <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-400">
@@ -2297,7 +2453,7 @@ const restoreRemoteProject = async (id) => {
                           >
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-sm font-semibold text-slate-900">
-                                {ch.book} {ch.chapter}:{verseLabel(chunk.startVerse, chunk.endVerse)}
+                                {formatChunkReference(project, chapterIndex, chunk, '–')}
                               </span>
                               {hasContent ? <span className="text-emerald-600">✓</span> : null}
                             </div>
@@ -2321,7 +2477,7 @@ const restoreRemoteProject = async (id) => {
                 <p className="text-sm font-medium text-slate-500">Chunk editor</p>
                 <h2 className="mt-2 text-xl font-semibold text-slate-900">
                   {selectedChunk
-                    ? `Section ${verseLabel(selectedChunk.startVerse, selectedChunk.endVerse)}`
+                    ? `Section ${formatChunkReference(project, selectedChunkChapterIndex, selectedChunk, '–')}`
                     : 'Select a chunk'}
                 </h2>
               </div>
@@ -2342,15 +2498,14 @@ const restoreRemoteProject = async (id) => {
                       <p className="text-xs text-slate-500">Read-only passage for the selected chunk.</p>
                     </div>
                     <span className="rounded-full bg-slate-100 px-3 py-1 text-xs uppercase tracking-[0.18em] text-slate-500">
-                      {selectedChunkChapter?.book} {selectedChunkChapter?.chapter}:{verseLabel(selectedChunk.startVerse, selectedChunk.endVerse)}
+                      {formatChunkReference(project, selectedChunkChapterIndex, selectedChunk, '–')}
                     </span>
                   </div>
                   <div className="space-y-3 font-serif text-slate-800">
-                    {selectedChunkChapter?.verses
-                      .filter((v) => v.number >= selectedChunk.startVerse && v.number <= selectedChunk.endVerse)
+                    {selectedChunkVerses
                       .map((verse) => (
-                        <p key={verse.number} className="leading-relaxed">
-                          <span className="font-semibold text-slate-700">{verse.number}.</span> {verse.text}
+                        <p key={`${verse.chapter}-${verse.number}`} className="leading-relaxed">
+                          <span className="font-semibold text-slate-700">{verse.chapter}:{verse.number}.</span> {verse.text}
                         </p>
                       ))}
                   </div>
