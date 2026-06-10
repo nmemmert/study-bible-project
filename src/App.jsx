@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import DOMPurify from 'dompurify';
 import {
   Document,
   HeadingLevel,
@@ -186,6 +187,10 @@ export function migrateProject(raw) {
   if (Array.isArray(raw.chapters)) {
     return {
       ...raw,
+      generalNotes: raw.generalNotes ?? '',
+      episodeNumber: raw.episodeNumber ?? '',
+      episodeTitle: raw.episodeTitle ?? '',
+      finalScript: raw.finalScript ?? '',
       chapters: raw.chapters.map((ch) => ({
         ...ch,
         chunks: ch.chunks.map(migrateChunk),
@@ -200,6 +205,10 @@ export function migrateProject(raw) {
     translation: raw.translation ?? 'BSB',
     lastEdited: raw.lastEdited ?? Date.now(),
     selectedChunkId: raw.selectedChunkId ?? null,
+    generalNotes: raw.generalNotes ?? '',
+    episodeNumber: raw.episodeNumber ?? '',
+    episodeTitle: raw.episodeTitle ?? '',
+    finalScript: raw.finalScript ?? '',
     chapters: [
       {
         book: raw.book ?? '',
@@ -495,28 +504,10 @@ export function renderVerseContent(content) {
   return '';
 }
 
-export function buildClaudePrompt(project) {
+function buildChunkBodies(project) {
   const chapters = Array.isArray(project.chapters) ? project.chapters : [];
-  const chapterLabel = chapters.map((ch) => `${ch.book} ${ch.chapter}`).join(', ');
-
-  const header = `I've prepared a Bible study on ${chapterLabel} (${project.translation}) and need your help turning my notes into a polished study guide.
-
-Below is my work organised by passage chunk, including my OIA notes and Greek word research. Please create a clear, structured study guide that:
-- Synthesises my notes into coherent teaching points
-- Naturally integrates the Greek word insights
-- Includes 2–3 reflection questions per chunk
-- Preserves the passage-by-passage structure
-
----
-
-PROJECT: ${project.title}
-TRANSLATION: ${project.translation}
-PASSAGE: ${chapterLabel}
-
-`;
-
   let chunkIndex = 0;
-  const chunks = chapters.map((ch, chapterIndex) => {
+  return chapters.map((ch, chapterIndex) => {
     return ch.chunks.map((chunk) => {
       chunkIndex += 1;
       const ref = formatChunkReference(project, chapterIndex, chunk, '–');
@@ -572,8 +563,121 @@ ${greekWords}
 `;
     }).join('\n');
   }).join('\n');
+}
 
-  return header + chunks;
+export function buildClaudePrompt(project) {
+  const chapters = Array.isArray(project.chapters) ? project.chapters : [];
+  const chapterLabel = chapters.map((ch) => `${ch.book} ${ch.chapter}`).join(', ');
+
+  const header = `I've prepared a Bible study on ${chapterLabel} (${project.translation}) and need your help turning my notes into a polished study guide.
+
+Below is my work organised by passage chunk, including my OIA notes and Greek word research. Please create a clear, structured study guide that:
+- Synthesises my notes into coherent teaching points
+- Naturally integrates the Greek word insights
+- Includes 2–3 reflection questions per chunk
+- Preserves the passage-by-passage structure
+
+---
+
+PROJECT: ${project.title}
+TRANSLATION: ${project.translation}
+PASSAGE: ${chapterLabel}
+${(project.generalNotes ?? '').trim() ? `\nBACKGROUND / GENERAL NOTES:\n${project.generalNotes.trim()}\n` : ''}
+`;
+
+  return header + buildChunkBodies(project);
+}
+
+export function buildPronunciationGuide(project) {
+  const chapters = Array.isArray(project.chapters) ? project.chapters : [];
+  const lines = [];
+  chapters.forEach((ch) => {
+    ch.chunks.forEach((chunk) => {
+      (chunk.greekWords ?? []).forEach((word) => {
+        const gloss = word.shortDefinition || word.englishGloss || '';
+        const lexeme = word.lexeme || '';
+        const translit = word.transliteration || '';
+        if (!lexeme && !translit) return;
+        const label = gloss ? `${gloss} — ` : '';
+        lines.push(`${label}${lexeme}${translit ? ` (${translit})` : ''}`);
+      });
+    });
+  });
+  if (lines.length === 0) return 'No Greek/Hebrew words collected yet.';
+  return lines.join('\n');
+}
+
+export function buildPodcastPrompt(project) {
+  const chapters = Array.isArray(project.chapters) ? project.chapters : [];
+  const chapterLabel = chapters.map((ch) => `${ch.book} ${ch.chapter}`).join(', ');
+  const episodeLabel = (project.episodeNumber ?? '').trim()
+    ? `EPISODE ${project.episodeNumber.trim()}${(project.episodeTitle ?? '').trim() ? ` — ${project.episodeTitle.trim()}` : ''}`
+    : (project.episodeTitle ?? '').trim() || 'EPISODE';
+
+  const header = `I'm recording an episode of my Bible study podcast "Verse by Verse with Nate: A Journey Through Scripture" and need a full script written from my study notes below.
+
+Please write the script in this exact structure, using the section markers and tone shown:
+
+VERSE BY VERSE WITH NATE
+A Journey Through Scripture
+${episodeLabel}
+${chapterLabel} (${project.translation})  ·  [estimate XX–XX minutes based on content]
+
+✝  OPENING PRAYER
+[Pause before opening the text — invite God into the study]
+A short prayer (4-6 sentences) tying into the themes of this passage.
+
+— ✦ —
+
+🎙️  COLD OPEN
+[Co-host delivers the cold open solo — hands off to Nate at the end]
+A few short punchy lines previewing the passage and its hook, ending with a hand-off line introducing Nate and the show.
+
+— ✦ —
+
+📖  SEGMENT [N] — [SEGMENT TITLE]
+[Brief stage direction in brackets]
+One segment per passage chunk (use the chunk reference, observation, interpretation, and application notes below as the raw material). Conversational, spoken-word style — not academic prose. Work through the text the way Nate would talk it through out loud, weaving in the OIA notes and cross-references naturally.
+
+— ✦ —
+
+📖  SEGMENT [N] — GREEK WORD STUDY
+[Work through the key terms — keep it vivid, help the words come alive]
+For each Greek/Hebrew word collected below, a block in this format:
+
+[English Gloss] — [English meaning]
+[DO NOT READ: original-language word (transliteration) — part of speech]
+2-4 sentences unpacking the word's meaning and why it matters for this passage, conversational tone.
+
+— ✦ —
+
+💬  DISCUSSION QUESTIONS
+[From the study guide — ${chapterLabel}]
+3 reflection questions drawn from the application notes, numbered.
+
+— ✦ —
+
+✦  CLOSING
+[Grounded and direct — send them away with something to carry]
+A closing reflection that ties the segments together, a short pull-quote from the passage with its reference, then sign off with:
+"I'm Nate, and this is Verse by Verse with Nate: A Journey Through Scripture."
+"Until next time — keep studying verse by verse, and nugget by nugget."
+
+— End of Episode —
+
+Verse by Verse with Nate  ·  ${episodeLabel}  ·  ${chapterLabel}
+
+---
+
+Here are my study notes, organised by passage chunk, including my OIA notes, cross-references, and Greek/Hebrew word research:
+
+PROJECT: ${project.title}
+TRANSLATION: ${project.translation}
+PASSAGE: ${chapterLabel}
+${(project.generalNotes ?? '').trim() ? `\nBACKGROUND / GENERAL NOTES:\n${project.generalNotes.trim()}\n` : ''}
+`;
+
+  return header + buildChunkBodies(project);
 }
 
 export function parseBibleChapter(data) {
@@ -638,6 +742,12 @@ const App = () => {
   // suggestModal: null | { chunkId, words: [{ strongKey, lexeme, translit, def }] }
   const [suggestModal, setSuggestModal] = useState(null);
   const [suggestSelection, setSuggestSelection] = useState(new Set());
+  const [homeSearch, setHomeSearch] = useState('');
+  const [homeSort, setHomeSort] = useState('recent'); // 'recent' | 'title' | 'passage'
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [verseSearch, setVerseSearch] = useState('');
+  const [collapsedSections, setCollapsedSections] = useState({});
 
   // ---------------------------------------------------------------------------
   // Startup: migrate old keys and load index
@@ -698,6 +808,34 @@ const App = () => {
   useEffect(() => {
     setCrossRefInput('');
   }, [project?.selectedChunkId]);
+
+  // Keyboard shortcuts: arrow keys navigate chunks on the study page, Esc closes modals
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      const tag = event.target?.tagName;
+      const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target?.isContentEditable;
+
+      if (event.key === 'Escape') {
+        if (suggestModal) {
+          setSuggestModal(null);
+          setSuggestSelection(new Set());
+        }
+        return;
+      }
+
+      if (currentPage !== 'study' || isEditable || suggestModal) return;
+
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        goToPreviousChunk();
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        goToNextChunk();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentPage, suggestModal, selectedChunkGlobalIndex, allChunks]);
 
   // Autosave
   useEffect(() => {
@@ -792,6 +930,10 @@ const App = () => {
           translation: setup.translation,
           lastEdited: Date.now(),
           selectedChunkId: null,
+          generalNotes: '',
+          episodeNumber: '',
+          episodeTitle: '',
+          finalScript: '',
           chapters: [
             {
               book: setup.book,
@@ -1816,6 +1958,24 @@ const App = () => {
     });
   };
 
+  const copyForPodcast = () => {
+    if (!project) return;
+    const prompt = buildPodcastPrompt(project);
+    navigator.clipboard.writeText(prompt).then(() => {
+      setSaveStatus('Copied podcast prep!');
+      window.setTimeout(() => setSaveStatus(''), 2000);
+    });
+  };
+
+  const copyPronunciationGuide = () => {
+    if (!project) return;
+    const guide = buildPronunciationGuide(project);
+    navigator.clipboard.writeText(guide).then(() => {
+      setSaveStatus('Copied pronunciation guide!');
+      window.setTimeout(() => setSaveStatus(''), 2000);
+    });
+  };
+
   // ---------------------------------------------------------------------------
   // Home page helpers
   // ---------------------------------------------------------------------------
@@ -1837,7 +1997,22 @@ const App = () => {
     if (!loaded) return;
     setProject(loaded);
     setActiveChapterIndex(0);
-    setCurrentPage('setup');
+    const loadedChunks = loaded.chapters.flatMap((ch) => ch.chunks);
+    const hasSelectedChunk = loaded.selectedChunkId
+      && loadedChunks.some((c) => c.id === loaded.selectedChunkId);
+    setCurrentPage(hasSelectedChunk ? 'study' : 'setup');
+  };
+
+  const renameProjectInStorage = (id, title) => {
+    const loaded = loadProjectById(id);
+    if (!loaded) return;
+    const updated = { ...loaded, title, lastEdited: Date.now() };
+    saveProjectToStorage(updated);
+    setProjectIndex(loadProjectIndex());
+    saveRemoteProject(updated);
+    if (project?.id === id) {
+      setProject((current) => (current ? { ...current, title } : current));
+    }
   };
 
 const deleteProject = (id) => {
@@ -1883,7 +2058,7 @@ const restoreRemoteProject = async (id) => {
   // Shared header
   // ---------------------------------------------------------------------------
   const headerButtons = (
-    <div className="flex items-center gap-3">
+    <div className="flex flex-wrap items-center gap-3">
       {currentPage !== 'home' && (
         <button
           type="button"
@@ -1911,6 +2086,24 @@ const restoreRemoteProject = async (id) => {
             className="rounded-md bg-violet-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:bg-slate-500"
           >
             Prepare for Claude
+          </button>
+          <button
+            type="button"
+            onClick={copyForPodcast}
+            disabled={allChunks.length === 0}
+            title="Copy a prompt for Claude to write a full episode script in the Verse by Verse with Nate format, ready to record"
+            className="rounded-md bg-fuchsia-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-fuchsia-400 disabled:cursor-not-allowed disabled:bg-slate-500"
+          >
+            🎙 Prepare for Podcast
+          </button>
+          <button
+            type="button"
+            onClick={copyPronunciationGuide}
+            disabled={allChunks.length === 0}
+            title="Copy a quick word + transliteration list to keep open while recording"
+            className="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-slate-500"
+          >
+            🗣 Pronunciation Guide
           </button>
           <button
             type="button"
@@ -2035,17 +2228,99 @@ const restoreRemoteProject = async (id) => {
               </button>
             </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <>
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <input
+                  type="text"
+                  value={homeSearch}
+                  onChange={(e) => setHomeSearch(e.target.value)}
+                  placeholder="Search projects by title or passage…"
+                  className="w-full max-w-sm rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                />
+                <label className="text-sm text-slate-600">
+                  Sort by{' '}
+                  <select
+                    value={homeSort}
+                    onChange={(e) => setHomeSort(e.target.value)}
+                    className="ml-1 rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                  >
+                    <option value="recent">Last edited</option>
+                    <option value="title">Title</option>
+                    <option value="passage">Passage</option>
+                  </select>
+                </label>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {projectIndex
                 .slice()
-                .sort((a, b) => (b.lastEdited ?? 0) - (a.lastEdited ?? 0))
+                .filter((entry) => {
+                  const q = homeSearch.trim().toLowerCase();
+                  if (!q) return true;
+                  return entry.title?.toLowerCase().includes(q)
+                    || entry.chapterSummary?.toLowerCase().includes(q);
+                })
+                .sort((a, b) => {
+                  if (homeSort === 'title') return (a.title ?? '').localeCompare(b.title ?? '');
+                  if (homeSort === 'passage') return (a.chapterSummary ?? '').localeCompare(b.chapterSummary ?? '');
+                  return (b.lastEdited ?? 0) - (a.lastEdited ?? 0);
+                })
                 .map((entry) => (
                   <div
                     key={entry.id}
                     className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-panel"
                   >
                     <div className="flex-1">
-                      <h2 className="text-base font-semibold text-slate-900">{entry.title}</h2>
+                      {renamingId === entry.id ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            autoFocus
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const trimmed = renameValue.trim();
+                                if (trimmed) renameProjectInStorage(entry.id, trimmed);
+                                setRenamingId(null);
+                              } else if (e.key === 'Escape') {
+                                setRenamingId(null);
+                              }
+                            }}
+                            className="flex-1 rounded-lg border border-slate-300 px-2 py-1 text-base font-semibold text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const trimmed = renameValue.trim();
+                              if (trimmed) renameProjectInStorage(entry.id, trimmed);
+                              setRenamingId(null);
+                            }}
+                            className="text-sm font-semibold text-emerald-600 hover:text-emerald-700"
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRenamingId(null)}
+                            className="text-sm text-slate-400 hover:text-slate-600"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-start justify-between gap-2">
+                          <h2 className="text-base font-semibold text-slate-900">{entry.title}</h2>
+                          <button
+                            type="button"
+                            onClick={() => { setRenamingId(entry.id); setRenameValue(entry.title ?? ''); }}
+                            className="shrink-0 text-xs text-slate-400 hover:text-slate-600"
+                            title="Rename project"
+                          >
+                            ✎ Rename
+                          </button>
+                        </div>
+                      )}
                       {entry.chapterSummary && (
                         <p className="mt-1 text-sm text-slate-500">{entry.chapterSummary}</p>
                       )}
@@ -2069,7 +2344,8 @@ const restoreRemoteProject = async (id) => {
                     </div>
                   </div>
                 ))}
-            </div>
+              </div>
+            </>
           )}
         </main>
       </div>
@@ -2085,7 +2361,7 @@ const restoreRemoteProject = async (id) => {
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900">
         <header className="border-b border-slate-200 bg-slate-900 text-white shadow-sm">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-5 sm:px-6 lg:px-8">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
             <div>
               <p className="text-sm uppercase tracking-[0.24em] text-slate-300">Bible Study Project</p>
               <h1 className="mt-2 text-2xl font-semibold">
@@ -2173,14 +2449,23 @@ const restoreRemoteProject = async (id) => {
                       {statusMessage || 'Click/shift-click, or type a verse range, to create a chunk.'}
                     </div>
                   </div>
-                  <div className="mt-6 grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
-                    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
+                  <div className="mt-6 grid min-w-0 gap-6 lg:grid-cols-[1.25fr_0.75fr]">
+                    <div className="min-w-0 rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
                       <div className="mb-4 flex items-center justify-between gap-3">
                         <span className="text-sm font-medium text-slate-600">Chapter verses</span>
                         <span className="text-xs text-slate-500">Click a verse, then shift-click an end verse.</span>
                       </div>
+                      <input
+                        type="text"
+                        value={verseSearch}
+                        onChange={(e) => setVerseSearch(e.target.value)}
+                        placeholder="Search verses in this chapter…"
+                        className="mb-3 block w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                      />
                       <div data-testid="verse-list" className="max-h-[520px] overflow-y-auto rounded-3xl border border-slate-200 bg-white p-4 scrollbar-thin">
-                        {activeChapter.verses.map((verse) => {
+                        {activeChapter.verses
+                          .filter((verse) => verse.text.toLowerCase().includes(verseSearch.trim().toLowerCase()))
+                          .map((verse) => {
                           const inRange =
                             rangeStart !== null &&
                             verse.number >= Math.min(rangeStart, rangeEnd) &&
@@ -2215,15 +2500,15 @@ const restoreRemoteProject = async (id) => {
                         })}
                       </div>
                     </div>
-                    <div className="space-y-4 rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
+                    <div className="min-w-0 space-y-4 rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
                       <div className="flex items-center justify-between gap-3">
                         <h3 className="text-sm font-semibold text-slate-900">Chunks</h3>
                         <span className="text-xs text-slate-500">{activeChapter.chunks.length} created</span>
                       </div>
                       <div className="rounded-2xl border border-slate-200 bg-white p-3">
                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Type chunk range</p>
-                        <div className="mt-2 flex items-end gap-2">
-                          <label className="flex-1 text-xs text-slate-500">
+                        <div className="mt-2 flex flex-wrap items-end gap-2">
+                          <label className="min-w-0 flex-1 text-xs text-slate-500">
                             Start
                             <input
                               type="number"
@@ -2234,7 +2519,7 @@ const restoreRemoteProject = async (id) => {
                               className="mt-1 block w-full rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
                             />
                           </label>
-                          <label className="flex-1 text-xs text-slate-500">
+                          <label className="min-w-0 flex-1 text-xs text-slate-500">
                             End
                             <input
                               type="number"
@@ -2251,7 +2536,7 @@ const restoreRemoteProject = async (id) => {
                               className="mt-1 block w-full rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
                             />
                           </label>
-                          <label className="flex-1 text-xs text-slate-500">
+                          <label className="min-w-0 flex-1 text-xs text-slate-500">
                             Next ch end (optional)
                             <input
                               type="number"
@@ -2402,7 +2687,7 @@ const restoreRemoteProject = async (id) => {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-slate-900 text-white shadow-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-5 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
           <div>
             <p className="text-sm uppercase tracking-[0.24em] text-slate-300">Bible Study Project</p>
             <h1 className="mt-2 text-2xl font-semibold">{project?.title ?? ''}</h1>
@@ -2412,13 +2697,31 @@ const restoreRemoteProject = async (id) => {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <section className="grid gap-8 xl:grid-cols-[280px_1fr]">
+        <section className="grid min-w-0 gap-8 xl:grid-cols-[280px_1fr]">
           {/* Sidebar */}
-          <aside className="rounded-3xl border border-slate-200 bg-white p-6 shadow-panel">
+          <aside className="min-w-0 rounded-3xl border border-slate-200 bg-white p-6 shadow-panel">
             <div className="mb-4">
               <p className="text-sm font-medium text-slate-500">Chunk Navigation</p>
               <h2 className="mt-2 text-xl font-semibold text-slate-900">{allChunks.length} chunks</h2>
             </div>
+            {allChunks.length > 6 && (
+              <label className="mb-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Jump to chunk
+                <select
+                  value={project?.selectedChunkId ?? ''}
+                  onChange={(e) => updateProject((current) => ({ ...current, selectedChunkId: e.target.value }))}
+                  className="mt-1 block w-full rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm font-normal normal-case text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                >
+                  {project?.chapters.map((ch, chapterIndex) =>
+                    ch.chunks.map((chunk) => (
+                      <option key={chunk.id} value={chunk.id}>
+                        {formatChunkReference(project, chapterIndex, chunk, '–')}
+                      </option>
+                    )),
+                  )}
+                </select>
+              </label>
+            )}
             <div className="space-y-6 max-h-[calc(100vh-260px)] overflow-y-auto scrollbar-thin">
               {project?.chapters.map((ch, chapterIndex) => (
                 <div key={`${ch.bookAbbrev}-${ch.chapter}`}>
@@ -2471,7 +2774,7 @@ const restoreRemoteProject = async (id) => {
           </aside>
 
           {/* Chunk editor */}
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-panel">
+          <div className="min-w-0 rounded-3xl border border-slate-200 bg-white p-6 shadow-panel">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-500">Chunk editor</p>
@@ -2511,13 +2814,66 @@ const restoreRemoteProject = async (id) => {
                   </div>
                 </div>
 
+                {/* Episode metadata for podcast prep */}
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                  <h3 className="text-sm font-semibold text-slate-900">Episode Info</h3>
+                  <p className="text-xs text-slate-500">Used to label the script when preparing podcast content.</p>
+                  <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+                    <input
+                      type="text"
+                      value={project.episodeNumber ?? ''}
+                      onChange={(e) => updateProject((current) => ({ ...current, episodeNumber: e.target.value }))}
+                      placeholder="Episode #"
+                      className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 sm:w-32"
+                    />
+                    <input
+                      type="text"
+                      value={project.episodeTitle ?? ''}
+                      onChange={(e) => updateProject((current) => ({ ...current, episodeTitle: e.target.value }))}
+                      placeholder="Episode title"
+                      className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                    />
+                  </div>
+                </div>
+
+                {/* Background / general notes for the project */}
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                  <button
+                    type="button"
+                    onClick={() => setCollapsedSections((c) => ({ ...c, generalNotes: !c.generalNotes }))}
+                    className="flex w-full items-center justify-between gap-2 text-left"
+                  >
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-900">Background / General Notes</h3>
+                      <p className="text-xs text-slate-500">Context, history, authorship, themes — applies to the whole study, not just this chunk.</p>
+                    </div>
+                    <span className="text-slate-400">{collapsedSections.generalNotes ? '▸' : '▾'}</span>
+                  </button>
+                  {!collapsedSections.generalNotes && (
+                    <textarea
+                      value={project.generalNotes ?? ''}
+                      onChange={(e) => updateProject((current) => ({ ...current, generalNotes: e.target.value }))}
+                      rows={4}
+                      placeholder="e.g. author, date, audience, historical context, key themes…"
+                      className="mt-4 w-full resize-y rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm leading-6 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                    />
+                  )}
+                </div>
+
                 {/* OIA Notes */}
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 space-y-4">
-                  <div>
-                    <h3 className="text-sm font-semibold text-slate-900">Study Notes (OIA)</h3>
-                    <p className="text-xs text-slate-500">Observation · Interpretation · Application</p>
-                  </div>
-                  {[
+                  <button
+                    type="button"
+                    onClick={() => setCollapsedSections((c) => ({ ...c, oia: !c.oia }))}
+                    className="flex w-full items-center justify-between gap-2 text-left"
+                  >
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-900">Study Notes (OIA)</h3>
+                      <p className="text-xs text-slate-500">Observation · Interpretation · Application</p>
+                    </div>
+                    <span className="text-slate-400">{collapsedSections.oia ? '▸' : '▾'}</span>
+                  </button>
+                  {!collapsedSections.oia && [
                     { field: 'observation', label: 'Observation', placeholder: 'What does the text say? List facts, details, key words…' },
                     { field: 'interpretation', label: 'Interpretation', placeholder: 'What does it mean? Context, cross-references, theology…' },
                     { field: 'application', label: 'Application', placeholder: 'How does it apply? Personal response, life change…' },
@@ -2539,7 +2895,15 @@ const restoreRemoteProject = async (id) => {
 
                 {/* Cross-references */}
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                  <h3 className="mb-3 text-sm font-semibold text-slate-900">Cross-References</h3>
+                  <button
+                    type="button"
+                    onClick={() => setCollapsedSections((c) => ({ ...c, crossRefs: !c.crossRefs }))}
+                    className="mb-3 flex w-full items-center justify-between gap-2 text-left"
+                  >
+                    <h3 className="text-sm font-semibold text-slate-900">Cross-References</h3>
+                    <span className="text-slate-400">{collapsedSections.crossRefs ? '▸' : '▾'}</span>
+                  </button>
+                  {!collapsedSections.crossRefs && <>
                   <div className="flex gap-2">
                     <input
                       type="text"
@@ -2577,15 +2941,24 @@ const restoreRemoteProject = async (id) => {
                       ))}
                     </div>
                   )}
+                  </>}
                 </div>
 
                 {/* Greek words */}
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                  <div className="mb-5 flex items-center justify-between gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setCollapsedSections((c) => ({ ...c, greek: !c.greek }))}
+                    className="mb-5 flex w-full items-center justify-between gap-4 text-left"
+                  >
                     <div>
                       <h3 className="text-sm font-semibold text-slate-900">Word Studies (Greek/Hebrew)</h3>
                       <p className="text-sm text-slate-500">Add lexical notes, look up Strong's entries, and suggest words from the passage.</p>
                     </div>
+                    <span className="text-slate-400 shrink-0">{collapsedSections.greek ? '▸' : '▾'}</span>
+                  </button>
+                  {!collapsedSections.greek && <>
+                  <div className="mb-5 flex items-center justify-end gap-4">
                     <div className="flex gap-2">
                       <button
                         type="button"
@@ -2720,7 +3093,7 @@ const restoreRemoteProject = async (id) => {
                               </summary>
                               <div
                                 className="mt-3 text-sm leading-6 text-slate-700"
-                                dangerouslySetInnerHTML={{ __html: word.definitionHtml }}
+                                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(word.definitionHtml) }}
                               />
                             </details>
                           ) : null}
@@ -2755,6 +3128,31 @@ const restoreRemoteProject = async (id) => {
                       ))
                     )}
                   </div>
+                  </>}
+                </div>
+
+                {/* Final episode script archive */}
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                  <button
+                    type="button"
+                    onClick={() => setCollapsedSections((c) => ({ ...c, finalScript: !c.finalScript }))}
+                    className="flex w-full items-center justify-between gap-2 text-left"
+                  >
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-900">Final Script</h3>
+                      <p className="text-xs text-slate-500">Paste the finished episode script here once Claude has helped you write it — keeps the project as a complete archive.</p>
+                    </div>
+                    <span className="text-slate-400">{collapsedSections.finalScript ? '▸' : '▾'}</span>
+                  </button>
+                  {!collapsedSections.finalScript && (
+                    <textarea
+                      value={project.finalScript ?? ''}
+                      onChange={(e) => updateProject((current) => ({ ...current, finalScript: e.target.value }))}
+                      rows={8}
+                      placeholder="Paste the final recorded/recordable episode script here…"
+                      className="mt-4 w-full resize-y rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm leading-6 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                    />
+                  )}
                 </div>
 
                 {/* Prev / Next */}

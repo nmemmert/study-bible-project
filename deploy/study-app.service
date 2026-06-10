@@ -1,0 +1,24 @@
+[Unit]
+Description=Bible Study App
+After=network.target
+
+[Service]
+Type=simple
+# Edit these to match your deployment
+User=study-app
+Group=study-app
+WorkingDirectory=/opt/study-app
+Environment=NODE_ENV=production
+Environment=PORT=3001
+ExecStart=/usr/bin/node server/index.js
+Restart=on-failure
+RestartSec=5
+
+# Hardening (relax if it causes issues)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/study-app
+
+[Install]
+WantedBy=multi-user.target
