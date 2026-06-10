@@ -114,6 +114,10 @@ export function migrateChunk(chunk) {
     return {
       ...chunk,
       spilloverEndVerse: Number.isInteger(chunk.spilloverEndVerse) ? chunk.spilloverEndVerse : null,
+      generalNotes: chunk.generalNotes ?? '',
+      episodeNumber: chunk.episodeNumber ?? '',
+      episodeTitle: chunk.episodeTitle ?? '',
+      finalScript: chunk.finalScript ?? '',
     }; // already new format
   }
   return {
@@ -123,6 +127,10 @@ export function migrateChunk(chunk) {
     application: '',
     crossReferences: [],
     spilloverEndVerse: null,
+    generalNotes: '',
+    episodeNumber: '',
+    episodeTitle: '',
+    finalScript: '',
     notes: undefined,
   };
 }
@@ -187,10 +195,6 @@ export function migrateProject(raw) {
   if (Array.isArray(raw.chapters)) {
     return {
       ...raw,
-      generalNotes: raw.generalNotes ?? '',
-      episodeNumber: raw.episodeNumber ?? '',
-      episodeTitle: raw.episodeTitle ?? '',
-      finalScript: raw.finalScript ?? '',
       chapters: raw.chapters.map((ch) => ({
         ...ch,
         chunks: ch.chunks.map(migrateChunk),
@@ -205,10 +209,6 @@ export function migrateProject(raw) {
     translation: raw.translation ?? 'BSB',
     lastEdited: raw.lastEdited ?? Date.now(),
     selectedChunkId: raw.selectedChunkId ?? null,
-    generalNotes: raw.generalNotes ?? '',
-    episodeNumber: raw.episodeNumber ?? '',
-    episodeTitle: raw.episodeTitle ?? '',
-    finalScript: raw.finalScript ?? '',
     chapters: [
       {
         book: raw.book ?? '',
@@ -524,6 +524,11 @@ function buildChunkBodies(project) {
         ? chunk.crossReferences.join(', ')
         : 'None.';
 
+      const generalNotes = (chunk.generalNotes ?? '').trim();
+      const episodeLabelLine = (chunk.episodeNumber ?? '').trim() || (chunk.episodeTitle ?? '').trim()
+        ? `Episode: ${[chunk.episodeNumber?.trim(), chunk.episodeTitle?.trim()].filter(Boolean).join(' — ')}\n`
+        : '';
+
       const greekWords = chunk.greekWords.length === 0
         ? 'None.'
         : chunk.greekWords.map((word) => {
@@ -543,10 +548,10 @@ function buildChunkBodies(project) {
       return `===
 
 CHUNK ${chunkIndex} — ${ref}
-
+${episodeLabelLine}
 Scripture:
 ${verses}
-
+${generalNotes ? `\nBackground / General Notes:\n${generalNotes}\n` : ''}
 Observation:
 ${observation}
 
@@ -582,7 +587,6 @@ Below is my work organised by passage chunk, including my OIA notes and Greek wo
 PROJECT: ${project.title}
 TRANSLATION: ${project.translation}
 PASSAGE: ${chapterLabel}
-${(project.generalNotes ?? '').trim() ? `\nBACKGROUND / GENERAL NOTES:\n${project.generalNotes.trim()}\n` : ''}
 `;
 
   return header + buildChunkBodies(project);
@@ -610,9 +614,7 @@ export function buildPronunciationGuide(project) {
 export function buildPodcastPrompt(project) {
   const chapters = Array.isArray(project.chapters) ? project.chapters : [];
   const chapterLabel = chapters.map((ch) => `${ch.book} ${ch.chapter}`).join(', ');
-  const episodeLabel = (project.episodeNumber ?? '').trim()
-    ? `EPISODE ${project.episodeNumber.trim()}${(project.episodeTitle ?? '').trim() ? ` — ${project.episodeTitle.trim()}` : ''}`
-    : (project.episodeTitle ?? '').trim() || 'EPISODE';
+  const episodeLabel = 'EPISODE';
 
   const header = `I'm recording an episode of my Bible study podcast "Verse by Verse with Nate: A Journey Through Scripture" and need a full script written from my study notes below.
 
@@ -674,7 +676,6 @@ Here are my study notes, organised by passage chunk, including my OIA notes, cro
 PROJECT: ${project.title}
 TRANSLATION: ${project.translation}
 PASSAGE: ${chapterLabel}
-${(project.generalNotes ?? '').trim() ? `\nBACKGROUND / GENERAL NOTES:\n${project.generalNotes.trim()}\n` : ''}
 `;
 
   return header + buildChunkBodies(project);
@@ -930,10 +931,6 @@ const App = () => {
           translation: setup.translation,
           lastEdited: Date.now(),
           selectedChunkId: null,
-          generalNotes: '',
-          episodeNumber: '',
-          episodeTitle: '',
-          finalScript: '',
           chapters: [
             {
               book: setup.book,
@@ -1012,6 +1009,10 @@ const App = () => {
           application: '',
           crossReferences: [],
           greekWords: [],
+          generalNotes: '',
+          episodeNumber: '',
+          episodeTitle: '',
+          finalScript: '',
         };
         return { ...ch, chunks: [...ch.chunks, newChunk] };
       });
@@ -2814,29 +2815,29 @@ const restoreRemoteProject = async (id) => {
                   </div>
                 </div>
 
-                {/* Episode metadata for podcast prep */}
+                {/* Episode metadata for podcast prep — unique per chunk */}
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
                   <h3 className="text-sm font-semibold text-slate-900">Episode Info</h3>
-                  <p className="text-xs text-slate-500">Used to label the script when preparing podcast content.</p>
+                  <p className="text-xs text-slate-500">Used to label the script when preparing podcast content for this chunk.</p>
                   <div className="mt-3 flex flex-col gap-3 sm:flex-row">
                     <input
                       type="text"
-                      value={project.episodeNumber ?? ''}
-                      onChange={(e) => updateProject((current) => ({ ...current, episodeNumber: e.target.value }))}
+                      value={selectedChunk?.episodeNumber ?? ''}
+                      onChange={(e) => updateChunk(selectedChunk.id, { episodeNumber: e.target.value })}
                       placeholder="Episode #"
                       className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 sm:w-32"
                     />
                     <input
                       type="text"
-                      value={project.episodeTitle ?? ''}
-                      onChange={(e) => updateProject((current) => ({ ...current, episodeTitle: e.target.value }))}
+                      value={selectedChunk?.episodeTitle ?? ''}
+                      onChange={(e) => updateChunk(selectedChunk.id, { episodeTitle: e.target.value })}
                       placeholder="Episode title"
                       className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
                     />
                   </div>
                 </div>
 
-                {/* Background / general notes for the project */}
+                {/* Background / general notes — unique per chunk */}
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
                   <button
                     type="button"
@@ -2845,14 +2846,14 @@ const restoreRemoteProject = async (id) => {
                   >
                     <div>
                       <h3 className="text-sm font-semibold text-slate-900">Background / General Notes</h3>
-                      <p className="text-xs text-slate-500">Context, history, authorship, themes — applies to the whole study, not just this chunk.</p>
+                      <p className="text-xs text-slate-500">Context, history, authorship, themes for this chunk.</p>
                     </div>
                     <span className="text-slate-400">{collapsedSections.generalNotes ? '▸' : '▾'}</span>
                   </button>
                   {!collapsedSections.generalNotes && (
                     <textarea
-                      value={project.generalNotes ?? ''}
-                      onChange={(e) => updateProject((current) => ({ ...current, generalNotes: e.target.value }))}
+                      value={selectedChunk?.generalNotes ?? ''}
+                      onChange={(e) => updateChunk(selectedChunk.id, { generalNotes: e.target.value })}
                       rows={4}
                       placeholder="e.g. author, date, audience, historical context, key themes…"
                       className="mt-4 w-full resize-y rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm leading-6 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
@@ -3140,14 +3141,14 @@ const restoreRemoteProject = async (id) => {
                   >
                     <div>
                       <h3 className="text-sm font-semibold text-slate-900">Final Script</h3>
-                      <p className="text-xs text-slate-500">Paste the finished episode script here once Claude has helped you write it — keeps the project as a complete archive.</p>
+                      <p className="text-xs text-slate-500">Paste the finished script for this chunk once Claude has helped you write it — keeps the project as a complete archive.</p>
                     </div>
                     <span className="text-slate-400">{collapsedSections.finalScript ? '▸' : '▾'}</span>
                   </button>
                   {!collapsedSections.finalScript && (
                     <textarea
-                      value={project.finalScript ?? ''}
-                      onChange={(e) => updateProject((current) => ({ ...current, finalScript: e.target.value }))}
+                      value={selectedChunk?.finalScript ?? ''}
+                      onChange={(e) => updateChunk(selectedChunk.id, { finalScript: e.target.value })}
                       rows={8}
                       placeholder="Paste the final recorded/recordable episode script here…"
                       className="mt-4 w-full resize-y rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm leading-6 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
