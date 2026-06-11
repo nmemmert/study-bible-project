@@ -931,7 +931,8 @@ const App = () => {
     const cacheKey = `${commentaryId}/${bookAbbrev}/${chapterNumber}`;
     if (_commentaryCacheRef.current[cacheKey]) return _commentaryCacheRef.current[cacheKey];
     const res = await fetch(`https://bible.helloao.org/api/c/${commentaryId}/${bookAbbrev}/${chapterNumber}.json`);
-    if (!res.ok) throw new Error(`No ${commentaryId} commentary for this chapter.`);
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('json')) throw new Error(`No ${commentaryId} commentary for this chapter.`);
     const data = await res.json();
     _commentaryCacheRef.current[cacheKey] = data;
     return data;
