@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import DOMPurify from 'dompurify';
+import mammoth from 'mammoth';
 import {
   Document,
   HeadingLevel,
@@ -1543,6 +1544,20 @@ const App = () => {
     updateChunk(chunkId, {
       tags: (selectedChunk?.tags ?? []).filter((t) => t !== tag),
     });
+  };
+
+  const importFinalScriptDocx = async (chunkId, file) => {
+    if (!file) return;
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const { value } = await mammoth.extractRawText({ arrayBuffer });
+      updateChunk(chunkId, { finalScript: value.trim() });
+      setStatusMessage('Imported script from DOCX.');
+      window.setTimeout(() => setStatusMessage(''), 1800);
+    } catch (err) {
+      setStatusMessage('Could not read that DOCX file.');
+      window.setTimeout(() => setStatusMessage(''), 1800);
+    }
   };
 
   const [suggestingCrossRefs, setSuggestingCrossRefs] = useState(false);
@@ -3605,6 +3620,23 @@ const restoreRemoteProject = async (id) => {
                     <span className="text-slate-400">{collapsedSections.finalScript ? '▸' : '▾'}</span>
                   </button>
                   {!collapsedSections.finalScript && (
+                    <>
+                    <div className="mt-4 flex items-center gap-3">
+                      <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400">
+                        ⬆ Upload .docx
+                        <input
+                          type="file"
+                          accept=".docx"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            importFinalScriptDocx(selectedChunk.id, file);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                      <span className="text-xs text-slate-500">Replaces the text below with the document's text.</span>
+                    </div>
                     <textarea
                       value={selectedChunk?.finalScript ?? ''}
                       onChange={(e) => updateChunk(selectedChunk.id, { finalScript: e.target.value })}
@@ -3612,6 +3644,7 @@ const restoreRemoteProject = async (id) => {
                       placeholder="Paste the final recorded/recordable episode script here…"
                       className="mt-4 w-full resize-y rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm leading-6 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
                     />
+                    </>
                   )}
                 </div>
 
