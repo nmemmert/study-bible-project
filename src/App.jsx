@@ -135,6 +135,7 @@ export function migrateChunk(chunk) {
       episodeNumber: chunk.episodeNumber ?? '',
       episodeTitle: chunk.episodeTitle ?? '',
       finalScript: chunk.finalScript ?? '',
+      tags: chunk.tags ?? [],
     }; // already new format
   }
   return {
@@ -143,6 +144,7 @@ export function migrateChunk(chunk) {
     interpretation: '',
     application: '',
     crossReferences: [],
+    tags: [],
     spilloverEndVerse: null,
     generalNotes: '',
     episodeNumber: '',
@@ -261,11 +263,19 @@ function saveProjectToStorage(project) {
   window.localStorage.setItem(projectKey(updated.id), JSON.stringify(updated));
   const index = loadProjectIndex();
   const existing = index.findIndex((e) => e.id === updated.id);
+  const tags = Array.from(
+    new Set(
+      (updated.chapters ?? [])
+        .flatMap((ch) => ch.chunks ?? [])
+        .flatMap((chunk) => chunk.tags ?? []),
+    ),
+  );
   const summary = {
     id: updated.id,
     title: updated.title,
     lastEdited: updated.lastEdited,
     chapterSummary: buildChapterSummary(updated),
+    tags,
   };
   if (existing >= 0) {
     index[existing] = summary;
@@ -855,10 +865,23 @@ const App = () => {
   const [suggestSelection, setSuggestSelection] = useState(new Set());
   const [homeSearch, setHomeSearch] = useState('');
   const [homeSort, setHomeSort] = useState('recent'); // 'recent' | 'title' | 'passage'
+  const [homeTagFilter, setHomeTagFilter] = useState('');
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
-  const [studyLayout, setStudyLayout] = useState('stacked'); // 'stacked' | 'split'
-  const [activeStudyTab, setActiveStudyTab] = useState('notes');
+  const [studyLayout, setStudyLayout] = useState(
+    () => localStorage.getItem('studyLayout') || 'stacked',
+  ); // 'stacked' | 'split'
+  const [activeStudyTab, setActiveStudyTab] = useState(
+    () => localStorage.getItem('activeStudyTab') || 'notes',
+  );
+
+  useEffect(() => {
+    localStorage.setItem('studyLayout', studyLayout);
+  }, [studyLayout]);
+
+  useEffect(() => {
+    localStorage.setItem('activeStudyTab', activeStudyTab);
+  }, [activeStudyTab]);
   const [verseSearch, setVerseSearch] = useState('');
   const [collapsedSections, setCollapsedSections] = useState({});
   const [commentarySource, setCommentarySource] = useState('matthew-henry');
@@ -943,6 +966,7 @@ const App = () => {
 
   useEffect(() => {
     setCrossRefSuggestions([]);
+    setTagInput('');
   }, [selectedChunk?.id]);
   const selectedChunkChapter = selectedChunkChapterIndex >= 0
     ? project.chapters[selectedChunkChapterIndex]
@@ -1159,6 +1183,7 @@ const App = () => {
           episodeNumber: '',
           episodeTitle: '',
           finalScript: '',
+          tags: [],
         };
         return { ...ch, chunks: [...ch.chunks, newChunk] };
       });
@@ -1218,6 +1243,7 @@ const App = () => {
             application: '',
             crossReferences: [],
             greekWords: [],
+            tags: [],
           };
           existing.add(key);
           newChunks.push(newChunk);
@@ -1496,6 +1522,26 @@ const App = () => {
   const removeCrossRef = (chunkId, ref) => {
     updateChunk(chunkId, {
       crossReferences: (selectedChunk?.crossReferences ?? []).filter((r) => r !== ref),
+    });
+  };
+
+  const [tagInput, setTagInput] = useState('');
+
+  const addTag = (chunkId) => {
+    const tag = tagInput.trim();
+    if (!tag) return;
+    const existing = selectedChunk?.tags ?? [];
+    if (existing.some((t) => t.toLowerCase() === tag.toLowerCase())) {
+      setTagInput('');
+      return;
+    }
+    updateChunk(chunkId, { tags: [...existing, tag] });
+    setTagInput('');
+  };
+
+  const removeTag = (chunkId, tag) => {
+    updateChunk(chunkId, {
+      tags: (selectedChunk?.tags ?? []).filter((t) => t !== tag),
     });
   };
 
@@ -2490,11 +2536,33 @@ const restoreRemoteProject = async (id) => {
                     <option value="passage">Passage</option>
                   </select>
                 </label>
+                {(() => {
+                  const allTags = Array.from(
+                    new Set(projectIndex.flatMap((entry) => entry.tags ?? [])),
+                  ).sort((a, b) => a.localeCompare(b));
+                  if (allTags.length === 0) return null;
+                  return (
+                    <label className="text-sm text-slate-600">
+                      Tag{' '}
+                      <select
+                        value={homeTagFilter}
+                        onChange={(e) => setHomeTagFilter(e.target.value)}
+                        className="ml-1 rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                      >
+                        <option value="">All tags</option>
+                        {allTags.map((tag) => (
+                          <option key={tag} value={tag}>{tag}</option>
+                        ))}
+                      </select>
+                    </label>
+                  );
+                })()}
               </div>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {projectIndex
                 .slice()
                 .filter((entry) => {
+                  if (homeTagFilter && !(entry.tags ?? []).includes(homeTagFilter)) return false;
                   const q = homeSearch.trim().toLowerCase();
                   if (!q) return true;
                   return entry.title?.toLowerCase().includes(q)
@@ -2564,6 +2632,15 @@ const restoreRemoteProject = async (id) => {
                       )}
                       {entry.chapterSummary && (
                         <p className="mt-1 text-sm text-slate-500">{entry.chapterSummary}</p>
+                      )}
+                      {entry.tags?.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {entry.tags.map((tag) => (
+                            <span key={tag} className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-700">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
                       )}
                       <p className="mt-1 text-xs text-slate-400">{formatRelativeDate(entry.lastEdited)}</p>
                     </div>
@@ -3069,7 +3146,7 @@ const restoreRemoteProject = async (id) => {
                 {/* Right column (study panels) */}
                 <div className={`space-y-6 ${studyLayout === 'split' ? 'lg:flex-1 lg:basis-0 lg:min-w-0' : ''}`}>
                 {studyLayout === 'split' && (
-                  <div className="flex flex-wrap gap-2 rounded-3xl border border-slate-200 bg-white p-2">
+                  <div className="sticky top-0 z-10 flex flex-wrap gap-2 rounded-3xl border border-slate-200 bg-white p-2 shadow-sm">
                     {STUDY_TABS.map((tab) => (
                       <button
                         key={tab.id}
@@ -3164,6 +3241,40 @@ const restoreRemoteProject = async (id) => {
                       />
                     </div>
                   ))}
+                </div>
+
+                {/* Tags */}
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${studyLayout === 'split' && activeStudyTab !== 'notes' ? 'hidden' : ''}`}>
+                  <h3 className="text-sm font-semibold text-slate-900">Tags</h3>
+                  <p className="mb-3 text-xs text-slate-500">Label this chunk by topic so you can search across studies later.</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(selectedChunk.tags ?? []).map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-700"
+                      >
+                        {tag}
+                        <button
+                          type="button"
+                          onClick={() => removeTag(selectedChunk.id, tag)}
+                          className="text-indigo-400 transition hover:text-indigo-700"
+                          aria-label={`Remove tag ${tag}`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      type="text"
+                      value={tagInput}
+                      onChange={(e) => setTagInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); addTag(selectedChunk.id); }
+                      }}
+                      placeholder="Add a tag and press Enter"
+                      className="min-w-[10rem] flex-1 rounded-2xl border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                    />
+                  </div>
                 </div>
 
                 {/* Cross-references */}
@@ -3322,6 +3433,21 @@ const restoreRemoteProject = async (id) => {
                               </button>
                             </div>
                           </div>
+                          {word.strongNumber ? (
+                            <div className="mt-3 flex items-center gap-2">
+                              <span
+                                className="group relative inline-flex cursor-default items-center rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-semibold text-sky-700"
+                                title={word.shortDefinition || word.englishGloss || ''}
+                              >
+                                {word.strongNumber}
+                                {(word.shortDefinition || word.englishGloss) && (
+                                  <span className="pointer-events-none absolute bottom-full left-0 z-20 mb-1 hidden w-max max-w-xs rounded-xl bg-slate-900 px-3 py-2 text-xs font-normal leading-5 text-white shadow-lg group-hover:block">
+                                    {word.shortDefinition || word.englishGloss}
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                          ) : null}
                           <div className="mt-4 grid gap-4 sm:grid-cols-3">
                             <label className="text-sm text-slate-600">
                               Greek word
