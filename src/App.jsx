@@ -3,10 +3,13 @@ import { createPortal } from 'react-dom';
 import DOMPurify from 'dompurify';
 import mammoth from 'mammoth';
 import {
+  AlignmentType,
+  BorderStyle,
   Document,
   HeadingLevel,
   Packer,
   Paragraph,
+  ShadingType,
   Table,
   TableCell,
   TableRow,
@@ -508,6 +511,23 @@ export function createParagraphsFromText(text) {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => new Paragraph({ children: [new TextRun({ text: line })] }));
+}
+
+const DOCX_ACCENT = '0F766E'; // teal-700
+
+export function sectionLabel(text) {
+  return new Paragraph({
+    spacing: { before: 240, after: 80 },
+    shading: { type: ShadingType.CLEAR, fill: 'F0FDFA' },
+    children: [
+      new TextRun({
+        text: text.toUpperCase(),
+        bold: true,
+        color: DOCX_ACCENT,
+        size: 20,
+      }),
+    ],
+  });
 }
 
 export function renderVerseContent(content) {
@@ -2171,71 +2191,140 @@ const App = () => {
     const children = [
       new Paragraph({ text: project.title, heading: HeadingLevel.TITLE }),
       new Paragraph({
-        text: `${project.translation} — ${buildChapterSummary(project)}`,
+        children: [
+          new TextRun({
+            text: `${project.translation} — ${buildChapterSummary(project)}`,
+            italics: true,
+            color: '64748B',
+          }),
+        ],
         spacing: { after: 300 },
       }),
     ];
 
+    const noBorder = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+
     project.chapters.forEach((ch, chapterIndex) => {
-      children.push(new Paragraph({ text: `${ch.book} ${ch.chapter}`, heading: HeadingLevel.HEADING_1 }));
+      children.push(new Paragraph({
+        text: `${ch.book} ${ch.chapter}`,
+        heading: HeadingLevel.HEADING_1,
+        border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: DOCX_ACCENT, space: 4 } },
+        spacing: { before: 360, after: 160 },
+      }));
       ch.chunks.forEach((chunk) => {
         const scriptureHeading = formatChunkReference(project, chapterIndex, chunk, '-');
 
-        children.push(new Paragraph({ text: scriptureHeading, heading: HeadingLevel.HEADING_2 }));
-        getChunkVerseEntries(project, chapterIndex, chunk).forEach((verse) => {
-            children.push(new Paragraph({
+        const headingRuns = [new TextRun({ text: scriptureHeading, bold: true, size: 28, color: DOCX_ACCENT })];
+        if (chunk.episodeNumber || chunk.episodeTitle) {
+          headingRuns.push(new TextRun({
+            text: `   (Ep. ${chunk.episodeNumber || '—'}${chunk.episodeTitle ? `: ${chunk.episodeTitle}` : ''})`,
+            italics: true,
+            size: 22,
+            color: '64748B',
+          }));
+        }
+        children.push(new Paragraph({ children: headingRuns, spacing: { before: 320, after: 120 } }));
+
+        // Scripture text in a shaded, left-bordered table cell for a "callout" look
+        const scriptureParas = getChunkVerseEntries(project, chapterIndex, chunk).map((verse) => new Paragraph({
+          children: [
+            new TextRun({ text: `${verse.chapter}:${verse.number} `, bold: true, color: DOCX_ACCENT }),
+            new TextRun({ text: verse.text, italics: true }),
+          ],
+          spacing: { after: 80 },
+        }));
+        children.push(new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+            new TableRow({
               children: [
-                new TextRun({ text: `${verse.chapter}:${verse.number}. `, bold: true }),
-                new TextRun({ text: verse.text }),
+                new TableCell({
+                  shading: { type: ShadingType.CLEAR, fill: 'F8FAFC' },
+                  margins: { top: 120, bottom: 120, left: 180, right: 180 },
+                  borders: {
+                    ...{ top: noBorder, right: noBorder, bottom: noBorder },
+                    left: { style: BorderStyle.SINGLE, size: 24, color: DOCX_ACCENT },
+                  },
+                  children: scriptureParas,
+                }),
               ],
-            }));
-          });
+            }),
+          ],
+        }));
+        children.push(new Paragraph({ text: '', spacing: { after: 120 } }));
 
-        children.push(new Paragraph({ text: 'OBSERVATION:', spacing: { before: 240, after: 120 }, bold: true }));
-        children.push(...createParagraphsFromText(chunk.observation || 'No observation.'));
-        children.push(new Paragraph({ text: 'INTERPRETATION:', spacing: { before: 240, after: 120 }, bold: true }));
-        children.push(...createParagraphsFromText(chunk.interpretation || 'No interpretation.'));
-        children.push(new Paragraph({ text: 'APPLICATION:', spacing: { before: 240, after: 120 }, bold: true }));
-        children.push(...createParagraphsFromText(chunk.application || 'No application.'));
-
-        if ((chunk.crossReferences ?? []).length > 0) {
-          children.push(new Paragraph({ text: 'CROSS-REFERENCES:', spacing: { before: 240, after: 120 }, bold: true }));
-          children.push(new Paragraph({ text: chunk.crossReferences.join(', ') }));
+        if (chunk.generalNotes?.trim()) {
+          children.push(sectionLabel('Background / General Notes'));
+          children.push(...createParagraphsFromText(chunk.generalNotes));
         }
 
-        children.push(new Paragraph({ text: 'GREEK WORDS:', spacing: { before: 240, after: 120 }, bold: true }));
+        children.push(sectionLabel('Observation'));
+        children.push(...createParagraphsFromText(chunk.observation || 'No observation.'));
+        children.push(sectionLabel('Interpretation'));
+        children.push(...createParagraphsFromText(chunk.interpretation || 'No interpretation.'));
+        children.push(sectionLabel('Application'));
+        children.push(...createParagraphsFromText(chunk.application || 'No application.'));
+
+        if ((chunk.tags ?? []).length > 0) {
+          children.push(sectionLabel('Tags'));
+          children.push(new Paragraph({
+            children: chunk.tags.map((tag, i) => new TextRun({
+              text: i === 0 ? `#${tag}` : `   #${tag}`,
+              bold: true,
+              color: DOCX_ACCENT,
+            })),
+          }));
+        }
+
+        if ((chunk.crossReferences ?? []).length > 0) {
+          children.push(sectionLabel('Cross-References'));
+          children.push(new Paragraph({ text: chunk.crossReferences.join('  •  ') }));
+        }
+
         if (chunk.greekWords.length > 0) {
+          children.push(sectionLabel('Word Studies'));
+          const headerCellStyle = (label) => new TableCell({
+            width: { size: 20, type: WidthType.PERCENTAGE },
+            shading: { type: ShadingType.CLEAR, fill: DOCX_ACCENT },
+            children: [new Paragraph({ children: [new TextRun({ text: label, bold: true, color: 'FFFFFF' })] })],
+          });
           const tableRows = [
             new TableRow({
               tableHeader: true,
-              children: ['Strong', 'Greek', 'Transliteration', 'Part of Speech', 'Short Definition'].map((label) =>
-                new TableCell({
-                  width: { size: 20, type: WidthType.PERCENTAGE },
-                  children: [new Paragraph({ text: label, bold: true })],
-                }),
-              ),
+              children: ['Strong', 'Greek', 'Transliteration', 'Part of Speech', 'Short Definition'].map(headerCellStyle),
             }),
-            ...chunk.greekWords.map((word) => new TableRow({
+            ...chunk.greekWords.map((word, i) => new TableRow({
               children: [
-                new TableCell({ children: [new Paragraph(word.strongNumber || '')] }),
-                new TableCell({ children: [new Paragraph(word.lexeme || '')] }),
-                new TableCell({ children: [new Paragraph(word.transliteration || '')] }),
-                new TableCell({ children: [new Paragraph(word.partOfSpeech || '')] }),
-                new TableCell({ children: [new Paragraph(word.shortDefinition || '')] }),
+                new TableCell({ shading: i % 2 ? { type: ShadingType.CLEAR, fill: 'F8FAFC' } : undefined, children: [new Paragraph(word.strongNumber || '')] }),
+                new TableCell({ shading: i % 2 ? { type: ShadingType.CLEAR, fill: 'F8FAFC' } : undefined, children: [new Paragraph(word.lexeme || '')] }),
+                new TableCell({ shading: i % 2 ? { type: ShadingType.CLEAR, fill: 'F8FAFC' } : undefined, children: [new Paragraph(word.transliteration || '')] }),
+                new TableCell({ shading: i % 2 ? { type: ShadingType.CLEAR, fill: 'F8FAFC' } : undefined, children: [new Paragraph(word.partOfSpeech || '')] }),
+                new TableCell({ shading: i % 2 ? { type: ShadingType.CLEAR, fill: 'F8FAFC' } : undefined, children: [new Paragraph(word.shortDefinition || '')] }),
               ],
             })),
           ];
           children.push(new Table({ rows: tableRows, width: { size: 100, type: WidthType.PERCENTAGE } }));
           chunk.greekWords.forEach((word) => {
             if (word.definitionHtml) {
-              children.push(new Paragraph({ text: `${word.strongNumber} — ${word.lexeme || ''}`, spacing: { before: 180, after: 120 }, bold: true }));
+              children.push(new Paragraph({
+                spacing: { before: 180, after: 80 },
+                children: [new TextRun({ text: `${word.strongNumber} — ${word.lexeme || ''}`, bold: true, color: DOCX_ACCENT })],
+              }));
               children.push(...createParagraphsFromText(htmlToPlainText(word.definitionHtml)));
             }
           });
-        } else {
-          children.push(new Paragraph('No Greek word notes.'));
         }
-        children.push(new Paragraph({ text: '', spacing: { after: 300 } }));
+
+        if (chunk.finalScript?.trim()) {
+          children.push(sectionLabel('Final Script'));
+          children.push(...createParagraphsFromText(chunk.finalScript));
+        }
+
+        children.push(new Paragraph({
+          text: '',
+          spacing: { after: 200 },
+          border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: 'E2E8F0', space: 8 } },
+        }));
       });
     });
 
