@@ -898,8 +898,10 @@ const App = () => {
   const audioRef = useRef(null);
   const audioBookRef = useRef(audioBook);
   const audioNarratorRef = useRef(audioNarrator);
+  const audioStateRef = useRef(audioState);
   audioBookRef.current = audioBook;
   audioNarratorRef.current = audioNarrator;
+  audioStateRef.current = audioState;
 
   const playAudioChapter = async (abbrev, chapterNum, narrator) => {
     const res = await fetch(`https://bible.helloao.org/api/BSB/${abbrev}/${chapterNum}.json`);
@@ -911,16 +913,14 @@ const App = () => {
     if (!audioRef.current) {
       audioRef.current = new Audio();
       audioRef.current.addEventListener('ended', () => {
-        setAudioState((prev) => {
-          const nextChapter = prev.chapter + 1;
-          if (nextChapter > prev.total) {
-            return { status: 'idle', chapter: 0, total: 0 };
-          }
-          playAudioChapter(audioBookRef.current, nextChapter, audioNarratorRef.current).catch(() =>
-            setAudioState({ status: 'error', chapter: 0, total: 0 }),
-          );
-          return prev;
-        });
+        const nextChapter = audioStateRef.current.chapter + 1;
+        if (nextChapter > audioStateRef.current.total) {
+          setAudioState({ status: 'idle', chapter: 0, total: 0 });
+          return;
+        }
+        playAudioChapter(audioBookRef.current, nextChapter, audioNarratorRef.current).catch(() =>
+          setAudioState({ status: 'error', chapter: 0, total: 0 }),
+        );
       });
     }
     const audioEl = audioRef.current;
