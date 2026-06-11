@@ -16,15 +16,15 @@ const mockChapterData = {
   },
 };
 
-const mockGreekDefinition = [
-  {
-    topic: 'G4102',
-    lexeme: 'πίστις',
-    transliteration: 'pistis',
-    short_definition: 'faith, belief',
-    definition: '<p>Part(s) of speech: Noun</p><p>Faith or belief.</p>',
+// Mirrors the OpenScriptures Strong's Greek dictionary format loaded from jsdelivr.
+const mockGreekDict = {
+  G4102: {
+    lemma: 'πίστις',
+    translit: 'pistis',
+    kjv_def: 'faith, belief',
+    strongs_def: 'persuasion, i.e. credence; moral conviction',
   },
-];
+};
 
 function buildFetchMock({ chapterData = mockChapterData, greekData = null } = {}) {
   return vi.fn((url) => {
@@ -34,8 +34,11 @@ function buildFetchMock({ chapterData = mockChapterData, greekData = null } = {}
     if (url.includes('bible.helloao.org')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(chapterData) });
     }
-    if (url.includes('bolls.life') && greekData !== null) {
-      return Promise.resolve({ ok: true, json: () => Promise.resolve(greekData) });
+    if (url.includes('strongs-greek-dictionary') && greekData !== null) {
+      return Promise.resolve({
+        ok: true,
+        text: () => Promise.resolve(`var strongsGreekDictionary = ${JSON.stringify(greekData)};`),
+      });
     }
     return Promise.resolve({ ok: false });
   });
@@ -45,10 +48,11 @@ function buildFetchMock({ chapterData = mockChapterData, greekData = null } = {}
 // Test lifecycle
 // ---------------------------------------------------------------------------
 beforeEach(() => {
-  vi.stubGlobal('fetch', buildFetchMock());
-  vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:mock'), revokeObjectURL: vi.fn() });
-  vi.spyOn(window, 'confirm').mockReturnValue(false);
   localStorage.clear();
+  vi.stubGlobal('fetch', buildFetchMock());
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock');
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  vi.spyOn(window, 'confirm').mockReturnValue(false);
 });
 
 afterEach(() => {
@@ -182,7 +186,7 @@ describe('Chunk management', () => {
   test('creates a chunk by clicking a verse range', async () => {
     await loadChapter();
     addChunk('Paul, a servant', 'Grace and peace');
-    await screen.findByText(/1-3/);
+    await screen.findByText(/1[-–]3/);
   });
 
   test('chunk count increments after each addition', async () => {
@@ -299,7 +303,7 @@ describe('Greek word lookup', () => {
   });
 
   test('populates fields after a successful lookup', async () => {
-    await goToStudyAndAddGreekWord(buildFetchMock({ greekData: mockGreekDefinition }));
+    await goToStudyAndAddGreekWord(buildFetchMock({ greekData: mockGreekDict }));
     fireEvent.change(screen.getByPlaceholderText(/G4102, H7225, 4102/i), { target: { value: 'G4102' } });
     fireEvent.click(screen.getByRole('button', { name: /look up greek/i }));
     await screen.findByDisplayValue('πίστις');
@@ -308,7 +312,7 @@ describe('Greek word lookup', () => {
   });
 
   test('shows "No definition found." when the API returns an empty array', async () => {
-    await goToStudyAndAddGreekWord(buildFetchMock({ greekData: [] }));
+    await goToStudyAndAddGreekWord(buildFetchMock({ greekData: {} }));
     fireEvent.change(screen.getByPlaceholderText(/G4102, H7225, 4102/i), { target: { value: 'G4102' } });
     fireEvent.click(screen.getByRole('button', { name: /look up greek/i }));
     await screen.findByDisplayValue('No definition found.');

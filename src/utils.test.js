@@ -263,9 +263,16 @@ describe('migrateChunk', () => {
     expect(result.crossReferences).toEqual([]);
   });
 
-  test('is a no-op when chunk already has observation field', () => {
+  test('preserves existing fields and backfills new ones when chunk already has observation field', () => {
     const modern = { id: 'c1', startVerse: 1, endVerse: 1, observation: 'Already migrated.', interpretation: '', application: '', crossReferences: [], greekWords: [] };
-    expect(migrateChunk(modern)).toBe(modern);
+    const result = migrateChunk(modern);
+    expect(result).toMatchObject(modern);
+    expect(result.tags).toEqual([]);
+    expect(result.spilloverEndVerse).toBeNull();
+    expect(result.generalNotes).toBe('');
+    expect(result.episodeNumber).toBe('');
+    expect(result.episodeTitle).toBe('');
+    expect(result.finalScript).toBe('');
   });
 
   test('handles missing notes gracefully', () => {

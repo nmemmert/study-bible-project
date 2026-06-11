@@ -7,3 +7,5 @@ coverage/
 *.local
 .vite.pid
 .vite.log
+.api.pid
+.api.log
