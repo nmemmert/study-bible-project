@@ -20,6 +20,15 @@ import {
   loadRemoteProject,
 } from './syncService.js';
 
+const COMMENTARY_OPTIONS = [
+  { id: 'matthew-henry', name: 'Matthew Henry' },
+  { id: 'john-gill', name: 'John Gill' },
+  { id: 'jamieson-fausset-brown', name: 'Jamieson-Fausset-Brown' },
+  { id: 'adam-clarke', name: 'Adam Clarke' },
+  { id: 'keil-delitzsch', name: 'Keil & Delitzsch (OT)' },
+  { id: 'tyndale', name: 'Tyndale Open Study Notes' },
+];
+
 const bookOptions = [
   { name: 'Genesis', abbrev: 'GEN' },
   { name: 'Exodus', abbrev: 'EXO' },
@@ -702,6 +711,99 @@ export function parseBibleChapter(data) {
     }));
 }
 
+// Common short-form aliases for typed-in cross-references (e.g. "Rom 3:23")
+const BOOK_NAME_ALIASES = {
+  'gen': 'GEN', 'genesis': 'GEN', 'exo': 'EXO', 'exod': 'EXO', 'exodus': 'EXO',
+  'lev': 'LEV', 'leviticus': 'LEV', 'num': 'NUM', 'numbers': 'NUM',
+  'deut': 'DEU', 'deuteronomy': 'DEU', 'josh': 'JOS', 'joshua': 'JOS',
+  'judg': 'JDG', 'judges': 'JDG', 'ruth': 'RUT',
+  '1 sam': '1SA', '1 samuel': '1SA', '2 sam': '2SA', '2 samuel': '2SA',
+  '1 kgs': '1KI', '1 kings': '1KI', '2 kgs': '2KI', '2 kings': '2KI',
+  '1 chr': '1CH', '1 chronicles': '1CH', '2 chr': '2CH', '2 chronicles': '2CH',
+  'ezra': 'EZR', 'neh': 'NEH', 'nehemiah': 'NEH', 'esth': 'EST', 'esther': 'EST',
+  'job': 'JOB', 'ps': 'PSA', 'psa': 'PSA', 'psalm': 'PSA', 'psalms': 'PSA',
+  'prov': 'PRO', 'proverbs': 'PRO', 'eccl': 'ECC', 'ecclesiastes': 'ECC',
+  'song': 'SNG', 'isa': 'ISA', 'isaiah': 'ISA', 'jer': 'JER', 'jeremiah': 'JER',
+  'lam': 'LAM', 'lamentations': 'LAM', 'ezek': 'EZK', 'ezekiel': 'EZK',
+  'dan': 'DAN', 'daniel': 'DAN', 'hos': 'HOS', 'hosea': 'HOS', 'joel': 'JOL',
+  'amos': 'AMO', 'obad': 'OBA', 'obadiah': 'OBA', 'jonah': 'JON', 'mic': 'MIC',
+  'micah': 'MIC', 'nah': 'NAM', 'nahum': 'NAM', 'hab': 'HAB', 'habakkuk': 'HAB',
+  'zeph': 'ZEP', 'zephaniah': 'ZEP', 'hag': 'HAG', 'haggai': 'HAG',
+  'zech': 'ZEC', 'zechariah': 'ZEC', 'mal': 'MAL', 'malachi': 'MAL',
+  'matt': 'MAT', 'mt': 'MAT', 'matthew': 'MAT', 'mark': 'MRK', 'mk': 'MRK',
+  'luke': 'LUK', 'lk': 'LUK', 'john': 'JHN', 'jn': 'JHN', 'acts': 'ACT',
+  'rom': 'ROM', 'romans': 'ROM', '1 cor': '1CO', '1 corinthians': '1CO',
+  '2 cor': '2CO', '2 corinthians': '2CO', 'gal': 'GAL', 'galatians': 'GAL',
+  'eph': 'EPH', 'ephesians': 'EPH', 'phil': 'PHP', 'philippians': 'PHP',
+  'col': 'COL', 'colossians': 'COL', '1 thess': '1TH', '1 thessalonians': '1TH',
+  '2 thess': '2TH', '2 thessalonians': '2TH', '1 tim': '1TI', '1 timothy': '1TI',
+  '2 tim': '2TI', '2 timothy': '2TI', 'titus': 'TIT', 'phlm': 'PHM', 'philemon': 'PHM',
+  'heb': 'HEB', 'hebrews': 'HEB', 'jas': 'JAS', 'james': 'JAS',
+  '1 pet': '1PE', '1 peter': '1PE', '2 pet': '2PE', '2 peter': '2PE',
+  '1 jn': '1JN', '1 john': '1JN', '2 jn': '2JN', '2 john': '2JN',
+  '3 jn': '3JN', '3 john': '3JN', 'jude': 'JUD', 'rev': 'REV', 'revelation': 'REV',
+};
+
+bookOptions.forEach((b) => {
+  BOOK_NAME_ALIASES[b.name.toLowerCase()] = b.abbrev;
+});
+
+// Parses strings like "Romans 3:23", "1 Timothy 3:2-7" into { bookAbbrev, chapter, verse, endVerse }
+function parseCrossRefString(ref) {
+  const match = ref.trim().match(/^(.+?)\s+(\d+):(\d+)(?:-(\d+))?$/);
+  if (!match) return null;
+  const [, bookPart, chapter, verse, endVerse] = match;
+  const abbrev = BOOK_NAME_ALIASES[bookPart.trim().toLowerCase()];
+  if (!abbrev) return null;
+  return {
+    bookAbbrev: abbrev,
+    chapter: Number(chapter),
+    verse: Number(verse),
+    endVerse: endVerse ? Number(endVerse) : Number(verse),
+  };
+}
+
+// A cross-reference chip that fetches and shows the referenced verse text on hover
+function CrossRefChip({ label, onRemove, loadVerseText }) {
+  const [hovered, setHovered] = useState(false);
+  const [verseText, setVerseText] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!hovered || verseText || error) return;
+    let cancelled = false;
+    loadVerseText(label)
+      .then((text) => { if (!cancelled) setVerseText(text || 'Verse text unavailable.'); })
+      .catch(() => { if (!cancelled) setError('Verse text unavailable.'); });
+    return () => { cancelled = true; };
+  }, [hovered]);
+
+  return (
+    <span
+      className="relative inline-flex items-center gap-1 rounded-full bg-slate-200 px-3 py-1 text-sm text-slate-800"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {label}
+      {onRemove && (
+        <button
+          type="button"
+          onClick={onRemove}
+          className="ml-1 text-slate-500 hover:text-rose-600"
+          aria-label={`Remove ${label}`}
+        >
+          ×
+        </button>
+      )}
+      {hovered && (
+        <span className="absolute bottom-full left-0 z-10 mb-2 w-64 rounded-xl border border-slate-300 bg-white p-3 text-xs font-normal normal-case text-slate-700 shadow-lg">
+          {error || verseText || 'Loading...'}
+        </span>
+      )}
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // App component
 // ---------------------------------------------------------------------------
@@ -749,6 +851,21 @@ const App = () => {
   const [renameValue, setRenameValue] = useState('');
   const [verseSearch, setVerseSearch] = useState('');
   const [collapsedSections, setCollapsedSections] = useState({});
+  const [commentarySource, setCommentarySource] = useState('matthew-henry');
+  const [commentaryData, setCommentaryData] = useState(null); // { content: [...] } for current chapter
+  const [commentaryLoading, setCommentaryLoading] = useState(false);
+  const [commentaryError, setCommentaryError] = useState('');
+  const _commentaryCacheRef = useRef({});
+
+  const loadCommentaryChapter = async (commentaryId, bookAbbrev, chapterNumber) => {
+    const cacheKey = `${commentaryId}/${bookAbbrev}/${chapterNumber}`;
+    if (_commentaryCacheRef.current[cacheKey]) return _commentaryCacheRef.current[cacheKey];
+    const res = await fetch(`https://bible.helloao.org/api/c/${commentaryId}/${bookAbbrev}/${chapterNumber}.json`);
+    if (!res.ok) throw new Error(`No ${commentaryId} commentary for this chapter.`);
+    const data = await res.json();
+    _commentaryCacheRef.current[cacheKey] = data;
+    return data;
+  };
 
   // ---------------------------------------------------------------------------
   // Startup: migrate old keys and load index
@@ -798,6 +915,25 @@ const App = () => {
   const selectedChunkChapterIndex = selectedChunk
     ? project.chapters.findIndex((ch) => ch.chunks.some((c) => c.id === selectedChunk.id))
     : -1;
+
+  useEffect(() => {
+    if (collapsedSections.commentary) return;
+    if (selectedChunkChapterIndex < 0) return;
+    const chapter = project.chapters[selectedChunkChapterIndex];
+    setCommentaryLoading(true);
+    setCommentaryError('');
+    loadCommentaryChapter(commentarySource, chapter.bookAbbrev, chapter.chapter)
+      .then((data) => setCommentaryData(data))
+      .catch((err) => {
+        setCommentaryData(null);
+        setCommentaryError(err.message);
+      })
+      .finally(() => setCommentaryLoading(false));
+  }, [commentarySource, selectedChunk?.id, selectedChunkChapterIndex, collapsedSections.commentary]);
+
+  useEffect(() => {
+    setCrossRefSuggestions([]);
+  }, [selectedChunk?.id]);
   const selectedChunkChapter = selectedChunkChapterIndex >= 0
     ? project.chapters[selectedChunkChapterIndex]
     : null;
@@ -1351,6 +1487,100 @@ const App = () => {
     updateChunk(chunkId, {
       crossReferences: (selectedChunk?.crossReferences ?? []).filter((r) => r !== ref),
     });
+  };
+
+  const [suggestingCrossRefs, setSuggestingCrossRefs] = useState(false);
+  const [crossRefSuggestions, setCrossRefSuggestions] = useState([]);
+  const _crossRefDatasetCacheRef = useRef({});
+
+  const formatCrossRef = (ref) => {
+    const book = bookOptions.find((b) => b.abbrev === ref.book);
+    const bookName = book?.name ?? ref.book;
+    const verseRange = ref.endVerse && ref.endVerse !== ref.verse
+      ? `${ref.verse}-${ref.endVerse}`
+      : `${ref.verse}`;
+    return `${bookName} ${ref.chapter}:${verseRange}`;
+  };
+
+  const suggestCrossRefsForChunk = async (chunkId) => {
+    const chunk = allChunks.find((c) => c.id === chunkId);
+    const chapterIndex = project?.chapters.findIndex((ch) =>
+      ch.chunks.some((c) => c.id === chunkId)
+    ) ?? -1;
+    const chapter = chapterIndex >= 0 ? project.chapters[chapterIndex] : null;
+    if (!chunk || !chapter) return;
+
+    setSuggestingCrossRefs(true);
+    setCrossRefSuggestions([]);
+    try {
+      const cacheKey = `${chapter.bookAbbrev}/${chapter.chapter}`;
+      let chapterData = _crossRefDatasetCacheRef.current[cacheKey];
+      if (!chapterData) {
+        const res = await fetch(`https://bible.helloao.org/api/d/open-cross-ref/${chapter.bookAbbrev}/${chapter.chapter}.json`);
+        if (!res.ok) throw new Error('No cross-reference data found for this chapter.');
+        chapterData = await res.json();
+        _crossRefDatasetCacheRef.current[cacheKey] = chapterData;
+      }
+
+      const verseEntries = (chapterData.chapter?.content ?? []).filter(
+        (item) => item.verse >= chunk.startVerse
+          && item.verse <= chunk.endVerse,
+      );
+
+      const existing = new Set(chunk.crossReferences ?? []);
+      const seen = new Set();
+      const refs = [];
+      for (const v of verseEntries) {
+        for (const ref of v.references ?? []) {
+          const formatted = formatCrossRef(ref);
+          if (existing.has(formatted) || seen.has(formatted)) continue;
+          seen.add(formatted);
+          refs.push({ formatted, score: ref.score ?? 0 });
+        }
+      }
+
+      refs.sort((a, b) => b.score - a.score);
+      if (refs.length === 0) {
+        setStatusMessage('No new cross-reference suggestions found for this passage.');
+        window.setTimeout(() => setStatusMessage(''), 2500);
+        return;
+      }
+      setCrossRefSuggestions(refs.slice(0, 12).map((r) => r.formatted));
+    } catch (err) {
+      setStatusMessage(`Cross-reference suggest failed: ${err.message}`);
+      window.setTimeout(() => setStatusMessage(''), 3000);
+    } finally {
+      setSuggestingCrossRefs(false);
+    }
+  };
+
+  const _verseChapterCacheRef = useRef({});
+
+  const loadVerseText = async (refString) => {
+    const parsed = parseCrossRefString(refString);
+    if (!parsed) throw new Error('Could not parse reference.');
+    const translation = project?.translation ?? 'BSB';
+    const cacheKey = `${translation}/${parsed.bookAbbrev}/${parsed.chapter}`;
+    let verses = _verseChapterCacheRef.current[cacheKey];
+    if (!verses) {
+      const res = await fetch(`https://bible.helloao.org/api/${translation}/${parsed.bookAbbrev}/${parsed.chapter}.json`);
+      if (!res.ok) throw new Error('Could not load verse text.');
+      const data = await res.json();
+      verses = parseBibleChapter(data);
+      _verseChapterCacheRef.current[cacheKey] = verses;
+    }
+    const text = verses
+      .filter((v) => v.number >= parsed.verse && v.number <= parsed.endVerse)
+      .map((v) => v.text)
+      .join(' ');
+    return text;
+  };
+
+  const addSuggestedCrossRef = (chunkId, ref) => {
+    updateChunk(chunkId, {
+      crossReferences: [...(selectedChunk?.crossReferences ?? []), ref],
+    });
+    setCrossRefSuggestions((cur) => cur.filter((r) => r !== ref));
   };
 
   // ---------------------------------------------------------------------------
@@ -2922,23 +3152,37 @@ const restoreRemoteProject = async (id) => {
                       Add
                     </button>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => suggestCrossRefsForChunk(selectedChunk.id)}
+                    disabled={suggestingCrossRefs}
+                    className="mt-2 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {suggestingCrossRefs ? 'Suggesting...' : '✨ Suggest from passage'}
+                  </button>
+                  {crossRefSuggestions.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {crossRefSuggestions.map((ref) => (
+                        <button
+                          key={ref}
+                          type="button"
+                          onClick={() => addSuggestedCrossRef(selectedChunk.id, ref)}
+                          className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-white px-3 py-1 text-sm text-amber-700 transition hover:bg-amber-100"
+                        >
+                          + {ref}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {(selectedChunk.crossReferences ?? []).length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {selectedChunk.crossReferences.map((ref) => (
-                        <span
+                        <CrossRefChip
                           key={ref}
-                          className="inline-flex items-center gap-1 rounded-full bg-slate-200 px-3 py-1 text-sm text-slate-800"
-                        >
-                          {ref}
-                          <button
-                            type="button"
-                            onClick={() => removeCrossRef(selectedChunk.id, ref)}
-                            className="ml-1 text-slate-500 hover:text-rose-600"
-                            aria-label={`Remove ${ref}`}
-                          >
-                            ×
-                          </button>
-                        </span>
+                          label={ref}
+                          onRemove={() => removeCrossRef(selectedChunk.id, ref)}
+                          loadVerseText={loadVerseText}
+                        />
                       ))}
                     </div>
                   )}
@@ -3129,6 +3373,53 @@ const restoreRemoteProject = async (id) => {
                       ))
                     )}
                   </div>
+                  </>}
+                </div>
+
+                {/* Commentary */}
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                  <button
+                    type="button"
+                    onClick={() => setCollapsedSections((c) => ({ ...c, commentary: !c.commentary }))}
+                    className="mb-3 flex w-full items-center justify-between gap-2 text-left"
+                  >
+                    <h3 className="text-sm font-semibold text-slate-900">Commentary</h3>
+                    <span className="text-slate-400">{collapsedSections.commentary ? '▸' : '▾'}</span>
+                  </button>
+                  {!collapsedSections.commentary && <>
+                    <select
+                      value={commentarySource}
+                      onChange={(e) => setCommentarySource(e.target.value)}
+                      className="mb-3 block w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                    >
+                      {COMMENTARY_OPTIONS.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                    {commentaryLoading && <p className="text-sm text-slate-500">Loading commentary...</p>}
+                    {commentaryError && <p className="text-sm text-rose-500">{commentaryError}</p>}
+                    {!commentaryLoading && !commentaryError && commentaryData && (() => {
+                      const verses = (commentaryData.chapter?.content ?? []).filter(
+                        (item) => item.type === 'verse'
+                          && item.number >= selectedChunk.startVerse
+                          && item.number <= selectedChunk.endVerse,
+                      );
+                      if (verses.length === 0) {
+                        return <p className="text-sm text-slate-500">No commentary found for this verse range.</p>;
+                      }
+                      return (
+                        <div className="space-y-4">
+                          {verses.map((v) => (
+                            <div key={v.number}>
+                              <p className="text-sm font-semibold text-slate-700">Verse {v.number}</p>
+                              {(v.content ?? []).map((p, i) => (
+                                <p key={i} className="mt-1 text-sm text-slate-600">{p}</p>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </>}
                 </div>
 
