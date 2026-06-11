@@ -29,6 +29,14 @@ const COMMENTARY_OPTIONS = [
   { id: 'tyndale', name: 'Tyndale Open Study Notes' },
 ];
 
+const STUDY_TABS = [
+  { id: 'notes', label: 'Notes' },
+  { id: 'crossRefs', label: 'Cross-Refs' },
+  { id: 'wordStudy', label: 'Word Study' },
+  { id: 'commentary', label: 'Commentary' },
+  { id: 'script', label: 'Script' },
+];
+
 const bookOptions = [
   { name: 'Genesis', abbrev: 'GEN' },
   { name: 'Exodus', abbrev: 'EXO' },
@@ -849,6 +857,8 @@ const App = () => {
   const [homeSort, setHomeSort] = useState('recent'); // 'recent' | 'title' | 'passage'
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
+  const [studyLayout, setStudyLayout] = useState('stacked'); // 'stacked' | 'split'
+  const [activeStudyTab, setActiveStudyTab] = useState('notes');
   const [verseSearch, setVerseSearch] = useState('');
   const [collapsedSections, setCollapsedSections] = useState({});
   const [commentarySource, setCommentarySource] = useState('matthew-henry');
@@ -2928,9 +2938,9 @@ const restoreRemoteProject = async (id) => {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <section className="grid min-w-0 gap-8 xl:grid-cols-[280px_1fr]">
+        <section className={`grid min-w-0 gap-8 ${studyLayout === 'split' ? '' : 'xl:grid-cols-[280px_1fr]'}`}>
           {/* Sidebar */}
-          <aside className="min-w-0 rounded-3xl border border-slate-200 bg-white p-6 shadow-panel">
+          <aside className={`min-w-0 rounded-3xl border border-slate-200 bg-white p-6 shadow-panel ${studyLayout === 'split' ? 'hidden' : ''}`}>
             <div className="mb-4">
               <p className="text-sm font-medium text-slate-500">Chunk Navigation</p>
               <h2 className="mt-2 text-xl font-semibold text-slate-900">{allChunks.length} chunks</h2>
@@ -3015,17 +3025,28 @@ const restoreRemoteProject = async (id) => {
                     : 'Select a chunk'}
                 </h2>
               </div>
-              <div className="rounded-2xl bg-slate-100 px-3 py-2 text-sm text-slate-700">
-                {selectedChunk
-                  ? `Chunk ${selectedChunkGlobalIndex + 1} of ${allChunks.length}`
-                  : 'Choose a chunk to study.'}
+              <div className="flex items-center gap-2">
+                <div className="rounded-2xl bg-slate-100 px-3 py-2 text-sm text-slate-700">
+                  {selectedChunk
+                    ? `Chunk ${selectedChunkGlobalIndex + 1} of ${allChunks.length}`
+                    : 'Choose a chunk to study.'}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setStudyLayout((m) => (m === 'split' ? 'stacked' : 'split'))}
+                  className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+                  title="Toggle two-pane study layout"
+                >
+                  {studyLayout === 'split' ? '☰ Stacked View' : '◫ Split View'}
+                </button>
               </div>
             </div>
 
             {selectedChunk ? (
               <div className="mt-6 space-y-6">
+              <div className={`space-y-6 ${studyLayout === 'split' ? 'lg:flex lg:items-start lg:gap-6 lg:space-y-0' : ''}`}>
                 {/* Scripture */}
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${studyLayout === 'split' ? 'lg:sticky lg:top-6 lg:flex-1 lg:basis-0 lg:min-w-0 lg:self-start' : ''}`}>
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-slate-700">Scripture</p>
@@ -3045,8 +3066,29 @@ const restoreRemoteProject = async (id) => {
                   </div>
                 </div>
 
+                {/* Right column (study panels) */}
+                <div className={`space-y-6 ${studyLayout === 'split' ? 'lg:flex-1 lg:basis-0 lg:min-w-0' : ''}`}>
+                {studyLayout === 'split' && (
+                  <div className="flex flex-wrap gap-2 rounded-3xl border border-slate-200 bg-white p-2">
+                    {STUDY_TABS.map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setActiveStudyTab(tab.id)}
+                        className={`rounded-2xl px-4 py-2 text-sm font-semibold transition ${
+                          activeStudyTab === tab.id
+                            ? 'bg-slate-900 text-white'
+                            : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 {/* Episode metadata for podcast prep — unique per chunk */}
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${studyLayout === 'split' && activeStudyTab !== 'notes' ? 'hidden' : ''}`}>
                   <h3 className="text-sm font-semibold text-slate-900">Episode Info</h3>
                   <p className="text-xs text-slate-500">Used to label the script when preparing podcast content for this chunk.</p>
                   <div className="mt-3 flex flex-col gap-3 sm:flex-row">
@@ -3068,7 +3110,7 @@ const restoreRemoteProject = async (id) => {
                 </div>
 
                 {/* Background / general notes — unique per chunk */}
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${studyLayout === 'split' && activeStudyTab !== 'notes' ? 'hidden' : ''}`}>
                   <button
                     type="button"
                     onClick={() => setCollapsedSections((c) => ({ ...c, generalNotes: !c.generalNotes }))}
@@ -3092,7 +3134,7 @@ const restoreRemoteProject = async (id) => {
                 </div>
 
                 {/* OIA Notes */}
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 space-y-4">
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 space-y-4 ${studyLayout === 'split' && activeStudyTab !== 'notes' ? 'hidden' : ''}`}>
                   <button
                     type="button"
                     onClick={() => setCollapsedSections((c) => ({ ...c, oia: !c.oia }))}
@@ -3125,7 +3167,7 @@ const restoreRemoteProject = async (id) => {
                 </div>
 
                 {/* Cross-references */}
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${studyLayout === 'split' && activeStudyTab !== 'crossRefs' ? 'hidden' : ''}`}>
                   <button
                     type="button"
                     onClick={() => setCollapsedSections((c) => ({ ...c, crossRefs: !c.crossRefs }))}
@@ -3190,7 +3232,7 @@ const restoreRemoteProject = async (id) => {
                 </div>
 
                 {/* Greek words */}
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${studyLayout === 'split' && activeStudyTab !== 'wordStudy' ? 'hidden' : ''}`}>
                   <button
                     type="button"
                     onClick={() => setCollapsedSections((c) => ({ ...c, greek: !c.greek }))}
@@ -3377,7 +3419,7 @@ const restoreRemoteProject = async (id) => {
                 </div>
 
                 {/* Commentary */}
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${studyLayout === 'split' && activeStudyTab !== 'commentary' ? 'hidden' : ''}`}>
                   <button
                     type="button"
                     onClick={() => setCollapsedSections((c) => ({ ...c, commentary: !c.commentary }))}
@@ -3424,7 +3466,7 @@ const restoreRemoteProject = async (id) => {
                 </div>
 
                 {/* Final episode script archive */}
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${studyLayout === 'split' && activeStudyTab !== 'script' ? 'hidden' : ''}`}>
                   <button
                     type="button"
                     onClick={() => setCollapsedSections((c) => ({ ...c, finalScript: !c.finalScript }))}
@@ -3445,6 +3487,9 @@ const restoreRemoteProject = async (id) => {
                       className="mt-4 w-full resize-y rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm leading-6 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
                     />
                   )}
+                </div>
+
+                </div>
                 </div>
 
                 {/* Prev / Next */}
