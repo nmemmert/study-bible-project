@@ -913,6 +913,19 @@ const App = () => {
   const [commentaryLoading, setCommentaryLoading] = useState(false);
   const [commentaryError, setCommentaryError] = useState('');
   const _commentaryCacheRef = useRef({});
+  const [interlinearData, setInterlinearData] = useState(null);
+  const [interlinearLoading, setInterlinearLoading] = useState(false);
+  const [interlinearError, setInterlinearError] = useState('');
+  const _interlinearCacheRef = useRef({});
+
+  const loadInterlinearChapter = async (bookAbbrev, chapterNumber) => {
+    if (_interlinearCacheRef.current[bookAbbrev]) return _interlinearCacheRef.current[bookAbbrev];
+    const res = await fetch(`/interlinear/${bookAbbrev}.json`);
+    if (!res.ok) throw new Error('No interlinear data for this book.');
+    const data = await res.json();
+    _interlinearCacheRef.current[bookAbbrev] = data;
+    return data;
+  };
 
   const loadCommentaryChapter = async (commentaryId, bookAbbrev, chapterNumber) => {
     const cacheKey = `${commentaryId}/${bookAbbrev}/${chapterNumber}`;
@@ -987,6 +1000,21 @@ const App = () => {
       })
       .finally(() => setCommentaryLoading(false));
   }, [commentarySource, selectedChunk?.id, selectedChunkChapterIndex, collapsedSections.commentary]);
+
+  useEffect(() => {
+    if (collapsedSections.interlinear) return;
+    if (selectedChunkChapterIndex < 0) return;
+    const chapter = project.chapters[selectedChunkChapterIndex];
+    setInterlinearLoading(true);
+    setInterlinearError('');
+    loadInterlinearChapter(chapter.bookAbbrev, chapter.chapter)
+      .then((data) => setInterlinearData(data?.[String(chapter.chapter)] ?? null))
+      .catch((err) => {
+        setInterlinearData(null);
+        setInterlinearError(err.message);
+      })
+      .finally(() => setInterlinearLoading(false));
+  }, [selectedChunk?.id, selectedChunkChapterIndex, collapsedSections.interlinear]);
 
   useEffect(() => {
     setCrossRefSuggestions([]);
@@ -3277,6 +3305,46 @@ const restoreRemoteProject = async (id) => {
                         </p>
                       ))}
                   </div>
+
+                  {/* Interlinear */}
+                  <div className="mt-4 border-t border-slate-200 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => setCollapsedSections((c) => ({ ...c, interlinear: !c.interlinear }))}
+                      className="mb-2 flex w-full items-center justify-between gap-2 text-left"
+                    >
+                      <h3 className="text-sm font-semibold text-slate-900">Interlinear</h3>
+                      <span className="text-slate-400">{collapsedSections.interlinear ? '▸' : '▾'}</span>
+                    </button>
+                    {!collapsedSections.interlinear && (
+                      <div
+                        className="space-y-2 font-serif text-slate-800"
+                        dir={selectedChunkChapter && !NT_BOOK_NUMBER[selectedChunkChapter.bookAbbrev] ? 'rtl' : 'ltr'}
+                      >
+                        {interlinearLoading && <p className="text-sm font-sans text-slate-500">Loading interlinear text...</p>}
+                        {interlinearError && <p className="text-sm font-sans text-rose-500">{interlinearError}</p>}
+                        {!interlinearLoading && !interlinearError && interlinearData
+                          && Array.from(
+                            { length: selectedChunk.endVerse - selectedChunk.startVerse + 1 },
+                            (_, i) => selectedChunk.startVerse + i,
+                          )
+                            .filter((num) => interlinearData[String(num)])
+                            .map((num) => (
+                              <div key={num} className="leading-relaxed">
+                                <span className="font-sans font-semibold text-slate-700">{selectedChunkChapter.chapter}:{num}.</span>{' '}
+                                <span className="mt-1 inline-flex flex-wrap gap-x-3 gap-y-2 align-top">
+                                  {interlinearData[String(num)].map((w, i) => (
+                                    <span key={i} className="inline-flex flex-col items-center text-center" title={[w.t, w.s, w.p].filter(Boolean).join(' · ')}>
+                                      <span className="text-base">{w.o}</span>
+                                      <span className="font-sans text-[11px] leading-tight text-slate-500">{w.g || '—'}</span>
+                                    </span>
+                                  ))}
+                                </span>
+                              </div>
+                            ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Right column (study panels) */}
@@ -3755,7 +3823,22 @@ const restoreRemoteProject = async (id) => {
                             <div key={v.number}>
                               <p className="text-sm font-semibold text-slate-700">Verse {v.number}</p>
                               {(v.content ?? []).map((p, i) => (
-                                <p key={i} className="mt-1 text-sm text-slate-600">{p}</p>
+                                <p
+                                  key={i}
+                                  className="mt-1 text-sm text-slate-600 cursor-context-menu"
+                                  title="Right-click to add to Background / General Notes"
+                                  onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    const sourceName = COMMENTARY_OPTIONS.find((c) => c.id === commentarySource)?.name ?? commentarySource;
+                                    const ref = formatChunkReference(project, selectedChunkChapterIndex, selectedChunk, '–');
+                                    const citation = `${p} (${sourceName}, ${ref}:${v.number})`;
+                                    const existing = selectedChunk.generalNotes ?? '';
+                                    const next = existing ? `${existing}\n\n${citation}` : citation;
+                                    updateChunk(selectedChunk.id, { generalNotes: next });
+                                  }}
+                                >
+                                  {p}
+                                </p>
                               ))}
                             </div>
                           ))}
