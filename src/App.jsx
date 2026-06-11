@@ -3573,6 +3573,20 @@ const restoreRemoteProject = async (id) => {
                         {w.translit && <span className="text-xs text-slate-400 italic">{w.translit}</span>}
                         <span className="text-xs font-mono text-slate-300">{w.strongKey}</span>
                       </div>
+                      {w.entry && (w.entry.strongs_def || w.entry.kjv_def || w.entry.derivation) && (
+                        <details className="mt-1">
+                          <summary
+                            className="cursor-pointer text-xs font-medium text-sky-600 hover:text-sky-700"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            Definition
+                          </summary>
+                          <div
+                            className="mt-1 text-xs leading-5 text-slate-600"
+                            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(buildGreekDefinitionHtml(w.strongKey, w.entry)) }}
+                          />
+                        </details>
+                      )}
                     </div>
                   </label>
                 </li>
