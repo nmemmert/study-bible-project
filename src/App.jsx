@@ -892,6 +892,77 @@ const App = () => {
   const [homeTagFilter, setHomeTagFilter] = useState('');
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
+  const [audioBook, setAudioBook] = useState(bookOptions[0].abbrev);
+  const [audioNarrator, setAudioNarrator] = useState('souer');
+  const [audioState, setAudioState] = useState({ status: 'idle', chapter: 0, total: 0 });
+  const audioRef = useRef(null);
+
+  const playAudioChapter = async (abbrev, chapterNum, narrator) => {
+    const res = await fetch(`https://bible.helloao.org/api/BSB/${abbrev}/${chapterNum}.json`);
+    if (!res.ok) throw new Error('Failed to load chapter audio');
+    const data = await res.json();
+    const total = data.book?.numberOfChapters ?? chapterNum;
+    const url = data.thisChapterAudioLinks?.[narrator];
+    if (!url) throw new Error('Audio not available for this narrator');
+    if (!audioRef.current) audioRef.current = new Audio();
+    const audioEl = audioRef.current;
+    audioEl.src = url;
+    await audioEl.play();
+    setAudioState({ status: 'playing', chapter: chapterNum, total });
+  };
+
+  const handlePlayBookAudio = async () => {
+    try {
+      await playAudioChapter(audioBook, 1, audioNarrator);
+    } catch {
+      setAudioState({ status: 'error', chapter: 0, total: 0 });
+    }
+  };
+
+  const handleStopBookAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+    }
+    setAudioState({ status: 'idle', chapter: 0, total: 0 });
+  };
+
+  const handleToggleBookAudioPause = () => {
+    if (!audioRef.current) return;
+    if (audioRef.current.paused) {
+      audioRef.current.play();
+      setAudioState((prev) => ({ ...prev, status: 'playing' }));
+    } else {
+      audioRef.current.pause();
+      setAudioState((prev) => ({ ...prev, status: 'paused' }));
+    }
+  };
+
+  useEffect(() => {
+    const audioEl = audioRef.current;
+    if (!audioEl) return undefined;
+    const handleEnded = () => {
+      setAudioState((prev) => {
+        const nextChapter = prev.chapter + 1;
+        if (nextChapter > prev.total) {
+          return { status: 'idle', chapter: 0, total: 0 };
+        }
+        playAudioChapter(audioBook, nextChapter, audioNarrator).catch(() =>
+          setAudioState({ status: 'error', chapter: 0, total: 0 }),
+        );
+        return prev;
+      });
+    };
+    audioEl.addEventListener('ended', handleEnded);
+    return () => audioEl.removeEventListener('ended', handleEnded);
+  }, [audioBook, audioNarrator]);
+
+  useEffect(() => () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+    }
+  }, []);
   const [studyLayout, setStudyLayout] = useState(
     () => localStorage.getItem('studyLayout') || 'stacked',
   ); // 'stacked' | 'split'
@@ -2722,6 +2793,67 @@ const restoreRemoteProject = async (id) => {
                     </label>
                   );
                 })()}
+              </div>
+              <div className="mb-4 flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-6 shadow-panel sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex-1">
+                  <h3 className="text-base font-semibold text-slate-900">Listen to BSB Audio</h3>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {audioState.status === 'idle' || audioState.status === 'error'
+                      ? 'Play a full book of the Berean Standard Bible.'
+                      : `Playing ${bookOptions.find((b) => b.abbrev === audioBook)?.name} — chapter ${audioState.chapter} of ${audioState.total}`}
+                  </p>
+                  {audioState.status === 'error' && (
+                    <p className="mt-1 text-sm text-rose-600">Couldn't load audio for this book/narrator.</p>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={audioBook}
+                    onChange={(e) => setAudioBook(e.target.value)}
+                    disabled={audioState.status === 'playing' || audioState.status === 'paused'}
+                    className="rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:opacity-60"
+                  >
+                    {bookOptions.map((book) => (
+                      <option key={book.abbrev} value={book.abbrev}>{book.name}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={audioNarrator}
+                    onChange={(e) => setAudioNarrator(e.target.value)}
+                    disabled={audioState.status === 'playing' || audioState.status === 'paused'}
+                    className="rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:opacity-60"
+                  >
+                    <option value="david">David</option>
+                    <option value="hays">Hays</option>
+                    <option value="souer">Souer</option>
+                  </select>
+                  {audioState.status === 'playing' || audioState.status === 'paused' ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleToggleBookAudioPause}
+                        className="rounded-xl bg-sky-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-sky-500"
+                      >
+                        {audioState.status === 'paused' ? 'Resume' : 'Pause'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleStopBookAudio}
+                        className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+                      >
+                        Stop
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handlePlayBookAudio}
+                      className="rounded-xl bg-sky-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-sky-500"
+                    >
+                      Play book
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {projectIndex
