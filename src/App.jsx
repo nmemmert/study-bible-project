@@ -3287,9 +3287,47 @@ const restoreRemoteProject = async (id) => {
                         if (e.key === 'Enter') { e.preventDefault(); addTag(selectedChunk.id); }
                       }}
                       placeholder="Add a tag and press Enter"
+                      list="tag-suggestions"
                       className="min-w-[10rem] flex-1 rounded-2xl border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
                     />
                   </div>
+                  {(() => {
+                    const used = new Set((selectedChunk.tags ?? []).map((t) => t.toLowerCase()));
+                    const allTags = Array.from(
+                      new Set([
+                        ...projectIndex.flatMap((entry) => entry.tags ?? []),
+                        ...(project?.chapters ?? []).flatMap((ch) => ch.chunks ?? []).flatMap((c) => c.tags ?? []),
+                      ]),
+                    )
+                      .filter((t) => !used.has(t.toLowerCase()))
+                      .sort((a, b) => a.localeCompare(b));
+                    if (allTags.length === 0) return null;
+                    return (
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-slate-500">Suggestions:</span>
+                        {allTags.map((tag) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => updateChunk(selectedChunk.id, { tags: [...(selectedChunk.tags ?? []), tag] })}
+                            className="rounded-full border border-indigo-200 px-3 py-1 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50"
+                          >
+                            + {tag}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                  <datalist id="tag-suggestions">
+                    {Array.from(
+                      new Set([
+                        ...projectIndex.flatMap((entry) => entry.tags ?? []),
+                        ...(project?.chapters ?? []).flatMap((ch) => ch.chunks ?? []).flatMap((c) => c.tags ?? []),
+                      ]),
+                    ).map((tag) => (
+                      <option key={tag} value={tag} />
+                    ))}
+                  </datalist>
                 </div>
 
                 {/* Cross-references */}
