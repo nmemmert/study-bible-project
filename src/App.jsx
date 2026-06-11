@@ -513,18 +513,21 @@ export function createParagraphsFromText(text) {
     .map((line) => new Paragraph({ children: [new TextRun({ text: line })] }));
 }
 
-const DOCX_ACCENT = '0F766E'; // teal-700
+const DOCX_ACCENT = 'C9A84C'; // antique gold
+const DOCX_HEADING_FONT = 'Cormorant Garamond';
+const DOCX_BODY_FONT = 'Lora';
 
 export function sectionLabel(text) {
   return new Paragraph({
     spacing: { before: 240, after: 80 },
-    shading: { type: ShadingType.CLEAR, fill: 'F0FDFA' },
     children: [
       new TextRun({
         text: text.toUpperCase(),
         bold: true,
         color: DOCX_ACCENT,
+        font: DOCX_BODY_FONT,
         size: 20,
+        characterSpacing: 20,
       }),
     ],
   });
@@ -2195,7 +2198,7 @@ const App = () => {
           new TextRun({
             text: `${project.translation} — ${buildChapterSummary(project)}`,
             italics: true,
-            color: '64748B',
+            color: '7A7060',
           }),
         ],
         spacing: { after: 300 },
@@ -2214,18 +2217,18 @@ const App = () => {
       ch.chunks.forEach((chunk) => {
         const scriptureHeading = formatChunkReference(project, chapterIndex, chunk, '-');
 
-        const headingRuns = [new TextRun({ text: scriptureHeading, bold: true, size: 28, color: DOCX_ACCENT })];
+        const headingRuns = [new TextRun({ text: scriptureHeading, bold: true, size: 28, color: DOCX_ACCENT, font: DOCX_HEADING_FONT })];
         if (chunk.episodeNumber || chunk.episodeTitle) {
           headingRuns.push(new TextRun({
             text: `   (Ep. ${chunk.episodeNumber || '—'}${chunk.episodeTitle ? `: ${chunk.episodeTitle}` : ''})`,
             italics: true,
             size: 22,
-            color: '64748B',
+            color: '7A7060',
           }));
         }
         children.push(new Paragraph({ children: headingRuns, spacing: { before: 320, after: 120 } }));
 
-        // Scripture text in a shaded, left-bordered table cell for a "callout" look
+        // Scripture text in a left-bordered table cell for a "callout" look (no fill)
         const scriptureParas = getChunkVerseEntries(project, chapterIndex, chunk).map((verse) => new Paragraph({
           children: [
             new TextRun({ text: `${verse.chapter}:${verse.number} `, bold: true, color: DOCX_ACCENT }),
@@ -2239,7 +2242,6 @@ const App = () => {
             new TableRow({
               children: [
                 new TableCell({
-                  shading: { type: ShadingType.CLEAR, fill: 'F8FAFC' },
                   margins: { top: 120, bottom: 120, left: 180, right: 180 },
                   borders: {
                     ...{ top: noBorder, right: noBorder, bottom: noBorder },
@@ -2285,21 +2287,21 @@ const App = () => {
           children.push(sectionLabel('Word Studies'));
           const headerCellStyle = (label) => new TableCell({
             width: { size: 20, type: WidthType.PERCENTAGE },
-            shading: { type: ShadingType.CLEAR, fill: DOCX_ACCENT },
-            children: [new Paragraph({ children: [new TextRun({ text: label, bold: true, color: 'FFFFFF' })] })],
+            borders: { bottom: { style: BorderStyle.SINGLE, size: 8, color: DOCX_ACCENT } },
+            children: [new Paragraph({ children: [new TextRun({ text: label, bold: true, color: DOCX_ACCENT })] })],
           });
           const tableRows = [
             new TableRow({
               tableHeader: true,
               children: ['Strong', 'Greek', 'Transliteration', 'Part of Speech', 'Short Definition'].map(headerCellStyle),
             }),
-            ...chunk.greekWords.map((word, i) => new TableRow({
+            ...chunk.greekWords.map((word) => new TableRow({
               children: [
-                new TableCell({ shading: i % 2 ? { type: ShadingType.CLEAR, fill: 'F8FAFC' } : undefined, children: [new Paragraph(word.strongNumber || '')] }),
-                new TableCell({ shading: i % 2 ? { type: ShadingType.CLEAR, fill: 'F8FAFC' } : undefined, children: [new Paragraph(word.lexeme || '')] }),
-                new TableCell({ shading: i % 2 ? { type: ShadingType.CLEAR, fill: 'F8FAFC' } : undefined, children: [new Paragraph(word.transliteration || '')] }),
-                new TableCell({ shading: i % 2 ? { type: ShadingType.CLEAR, fill: 'F8FAFC' } : undefined, children: [new Paragraph(word.partOfSpeech || '')] }),
-                new TableCell({ shading: i % 2 ? { type: ShadingType.CLEAR, fill: 'F8FAFC' } : undefined, children: [new Paragraph(word.shortDefinition || '')] }),
+                new TableCell({ children: [new Paragraph(word.strongNumber || '')] }),
+                new TableCell({ children: [new Paragraph(word.lexeme || '')] }),
+                new TableCell({ children: [new Paragraph(word.transliteration || '')] }),
+                new TableCell({ children: [new Paragraph(word.partOfSpeech || '')] }),
+                new TableCell({ children: [new Paragraph(word.shortDefinition || '')] }),
               ],
             })),
           ];
@@ -2323,12 +2325,42 @@ const App = () => {
         children.push(new Paragraph({
           text: '',
           spacing: { after: 200 },
-          border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: 'E2E8F0', space: 8 } },
+          border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: '2A2518', space: 8 } },
         }));
       });
     });
 
-    const doc = new Document({ sections: [{ children }] });
+    const doc = new Document({
+      styles: {
+        default: {
+          document: { run: { font: DOCX_BODY_FONT, color: '0A0A08' } },
+        },
+        paragraphStyles: [
+          {
+            id: 'Title',
+            name: 'Title',
+            basedOn: 'Normal',
+            next: 'Normal',
+            run: { font: DOCX_HEADING_FONT, size: 56, bold: true, color: '0A0A08' },
+          },
+          {
+            id: 'Heading1',
+            name: 'Heading 1',
+            basedOn: 'Normal',
+            next: 'Normal',
+            run: { font: DOCX_HEADING_FONT, size: 36, bold: true, color: '0A0A08' },
+          },
+          {
+            id: 'Heading2',
+            name: 'Heading 2',
+            basedOn: 'Normal',
+            next: 'Normal',
+            run: { font: DOCX_HEADING_FONT, size: 30, bold: true, color: '0A0A08' },
+          },
+        ],
+      },
+      sections: [{ children }],
+    });
     const blob = await Packer.toBlob(doc);
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
