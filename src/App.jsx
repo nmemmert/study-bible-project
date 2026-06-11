@@ -896,6 +896,10 @@ const App = () => {
   const [audioNarrator, setAudioNarrator] = useState('souer');
   const [audioState, setAudioState] = useState({ status: 'idle', chapter: 0, total: 0 });
   const audioRef = useRef(null);
+  const audioBookRef = useRef(audioBook);
+  const audioNarratorRef = useRef(audioNarrator);
+  audioBookRef.current = audioBook;
+  audioNarratorRef.current = audioNarrator;
 
   const playAudioChapter = async (abbrev, chapterNum, narrator) => {
     const res = await fetch(`https://bible.helloao.org/api/BSB/${abbrev}/${chapterNum}.json`);
@@ -904,7 +908,21 @@ const App = () => {
     const total = data.book?.numberOfChapters ?? chapterNum;
     const url = data.thisChapterAudioLinks?.[narrator];
     if (!url) throw new Error('Audio not available for this narrator');
-    if (!audioRef.current) audioRef.current = new Audio();
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+      audioRef.current.addEventListener('ended', () => {
+        setAudioState((prev) => {
+          const nextChapter = prev.chapter + 1;
+          if (nextChapter > prev.total) {
+            return { status: 'idle', chapter: 0, total: 0 };
+          }
+          playAudioChapter(audioBookRef.current, nextChapter, audioNarratorRef.current).catch(() =>
+            setAudioState({ status: 'error', chapter: 0, total: 0 }),
+          );
+          return prev;
+        });
+      });
+    }
     const audioEl = audioRef.current;
     audioEl.src = url;
     await audioEl.play();
@@ -937,25 +955,6 @@ const App = () => {
       setAudioState((prev) => ({ ...prev, status: 'paused' }));
     }
   };
-
-  useEffect(() => {
-    const audioEl = audioRef.current;
-    if (!audioEl) return undefined;
-    const handleEnded = () => {
-      setAudioState((prev) => {
-        const nextChapter = prev.chapter + 1;
-        if (nextChapter > prev.total) {
-          return { status: 'idle', chapter: 0, total: 0 };
-        }
-        playAudioChapter(audioBook, nextChapter, audioNarrator).catch(() =>
-          setAudioState({ status: 'error', chapter: 0, total: 0 }),
-        );
-        return prev;
-      });
-    };
-    audioEl.addEventListener('ended', handleEnded);
-    return () => audioEl.removeEventListener('ended', handleEnded);
-  }, [audioBook, audioNarrator]);
 
   useEffect(() => () => {
     if (audioRef.current) {
