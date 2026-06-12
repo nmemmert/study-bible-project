@@ -892,6 +892,12 @@ const App = () => {
   const [homeTagFilter, setHomeTagFilter] = useState('');
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
+  const [readerBookAbbrev, setReaderBookAbbrev] = useState(bookOptions[0].abbrev);
+  const [readerChapter, setReaderChapter] = useState(1);
+  const [readerVerses, setReaderVerses] = useState([]);
+  const [readerTotalChapters, setReaderTotalChapters] = useState(1);
+  const [readerLoading, setReaderLoading] = useState(false);
+  const [readerError, setReaderError] = useState('');
   const [audioBook, setAudioBook] = useState(bookOptions[0].abbrev);
   const [audioNarrator, setAudioNarrator] = useState('souer');
   const [audioState, setAudioState] = useState({ status: 'idle', chapter: 0, total: 0 });
@@ -1006,6 +1012,53 @@ const App = () => {
     const data = await res.json();
     _commentaryCacheRef.current[cacheKey] = data;
     return data;
+  };
+
+  // ---------------------------------------------------------------------------
+  // Bible reader (read-only browsing, separate from study projects)
+  // ---------------------------------------------------------------------------
+
+  const loadReaderChapter = async (bookAbbrev, chapterNumber) => {
+    setReaderLoading(true);
+    setReaderError('');
+    try {
+      const res = await fetch(`https://bible.helloao.org/api/BSB/${bookAbbrev}/${chapterNumber}.json`);
+      if (!res.ok) throw new Error('Unable to load chapter.');
+      const data = await res.json();
+      const verses = parseBibleChapter(data);
+      if (!Array.isArray(verses) || verses.length === 0) {
+        throw new Error('Invalid Bible data returned.');
+      }
+      setReaderVerses(verses);
+      setReaderTotalChapters(data.book?.numberOfChapters ?? chapterNumber);
+    } catch (err) {
+      setReaderError(err.message || 'Failed to load chapter.');
+      setReaderVerses([]);
+    } finally {
+      setReaderLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentPage !== 'reader') return;
+    loadReaderChapter(readerBookAbbrev, readerChapter);
+  }, [currentPage, readerBookAbbrev, readerChapter]);
+
+  const openBibleReader = () => {
+    setCurrentPage('reader');
+  };
+
+  const readerGoToPreviousChapter = () => {
+    if (readerChapter > 1) setReaderChapter((c) => c - 1);
+  };
+
+  const readerGoToNextChapter = () => {
+    if (readerChapter < readerTotalChapters) setReaderChapter((c) => c + 1);
+  };
+
+  const handleReaderBookChange = (abbrev) => {
+    setReaderBookAbbrev(abbrev);
+    setReaderChapter(1);
   };
 
   // ---------------------------------------------------------------------------
@@ -2689,13 +2742,22 @@ const restoreRemoteProject = async (id) => {
               <p className="text-sm uppercase tracking-[0.24em] text-slate-300">Bible Study Project</p>
               <h1 className="mt-2 text-2xl font-semibold">My Studies</h1>
             </div>
-            <button
-              type="button"
-              onClick={openNewProject}
-              className="rounded-xl bg-slate-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-600"
-            >
-              + New Project
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={openBibleReader}
+                className="rounded-xl border border-slate-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
+              >
+                📖 Read Bible
+              </button>
+              <button
+                type="button"
+                onClick={openNewProject}
+                className="rounded-xl bg-slate-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-600"
+              >
+                + New Project
+              </button>
+            </div>
           </div>
         </header>
         <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -2961,6 +3023,96 @@ const restoreRemoteProject = async (id) => {
               </div>
             </>
           )}
+        </main>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // BIBLE READER PAGE (plain read-only browsing)
+  // ---------------------------------------------------------------------------
+  if (currentPage === 'reader') {
+    const readerBook = bookOptions.find((b) => b.abbrev === readerBookAbbrev);
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-900">
+        <header className="border-b border-slate-200 bg-slate-900 text-white shadow-sm">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
+            <div>
+              <p className="text-sm uppercase tracking-[0.24em] text-slate-300">Bible Study Project</p>
+              <h1 className="mt-2 text-2xl font-semibold">Read the Bible (BSB)</h1>
+            </div>
+            <button
+              type="button"
+              onClick={goHome}
+              className="rounded-xl border border-slate-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
+            >
+              ← Back to Studies
+            </button>
+          </div>
+        </header>
+        <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
+          <div className="mb-6 flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-panel">
+            <label className="text-sm text-slate-600">
+              Book{' '}
+              <select
+                value={readerBookAbbrev}
+                onChange={(e) => handleReaderBookChange(e.target.value)}
+                className="ml-1 rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+              >
+                {bookOptions.map((b) => (
+                  <option key={b.abbrev} value={b.abbrev}>{b.name}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm text-slate-600">
+              Chapter{' '}
+              <select
+                value={readerChapter}
+                onChange={(e) => setReaderChapter(Number(e.target.value))}
+                className="ml-1 rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+              >
+                {Array.from({ length: readerTotalChapters }, (_, i) => i + 1).map((num) => (
+                  <option key={num} value={num}>{num}</option>
+                ))}
+              </select>
+            </label>
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                type="button"
+                onClick={readerGoToPreviousChapter}
+                disabled={readerChapter <= 1}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                ‹ Prev
+              </button>
+              <button
+                type="button"
+                onClick={readerGoToNextChapter}
+                disabled={readerChapter >= readerTotalChapters}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next ›
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-panel">
+            <h2 className="mb-4 text-xl font-semibold text-slate-900">
+              {readerBook?.name} {readerChapter} <span className="text-sm font-normal text-slate-500">(BSB)</span>
+            </h2>
+            {readerLoading && <p className="text-sm text-slate-500">Loading…</p>}
+            {readerError && <p className="text-sm text-rose-600">{readerError}</p>}
+            {!readerLoading && !readerError && (
+              <div className="space-y-2 leading-relaxed text-slate-800">
+                {readerVerses.map((verse) => (
+                  <p key={verse.number}>
+                    <sup className="mr-1 font-semibold text-slate-400">{verse.number}</sup>
+                    {verse.text}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
         </main>
       </div>
     );
