@@ -550,6 +550,9 @@ export function renderVerseContent(content) {
     if (Array.isArray(content.content)) {
       return renderVerseContent(content.content);
     }
+    if (typeof content.text === 'string') {
+      return content.text;
+    }
     return '';
   }
   return '';
