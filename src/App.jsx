@@ -904,7 +904,9 @@ const App = () => {
   const [audioBook, setAudioBook] = useState(bookOptions[0].abbrev);
   const [audioNarrator, setAudioNarrator] = useState('souer');
   const [audioState, setAudioState] = useState({ status: 'idle', chapter: 0, total: 0 });
+  const [readerAudioState, setReaderAudioState] = useState({ status: 'idle', chapter: 0 });
   const audioRef = useRef(null);
+  const audioModeRef = useRef('book'); // 'book' | 'reader' — which player owns audioRef
   const audioBookRef = useRef(audioBook);
   const audioNarratorRef = useRef(audioNarrator);
   const audioStateRef = useRef(audioState);
@@ -922,6 +924,10 @@ const App = () => {
     if (!audioRef.current) {
       audioRef.current = new Audio();
       audioRef.current.addEventListener('ended', () => {
+        if (audioModeRef.current === 'reader') {
+          setReaderAudioState({ status: 'idle', chapter: 0 });
+          return;
+        }
         const nextChapter = audioStateRef.current.chapter + 1;
         if (nextChapter > audioStateRef.current.total) {
           setAudioState({ status: 'idle', chapter: 0, total: 0 });
@@ -935,10 +941,15 @@ const App = () => {
     const audioEl = audioRef.current;
     audioEl.src = url;
     await audioEl.play();
-    setAudioState({ status: 'playing', chapter: chapterNum, total });
+    if (audioModeRef.current === 'reader') {
+      setReaderAudioState({ status: 'playing', chapter: chapterNum });
+    } else {
+      setAudioState({ status: 'playing', chapter: chapterNum, total });
+    }
   };
 
   const handlePlayBookAudio = async () => {
+    audioModeRef.current = 'book';
     try {
       await playAudioChapter(audioBook, 1, audioNarrator);
     } catch {
@@ -952,6 +963,7 @@ const App = () => {
       audioRef.current.src = '';
     }
     setAudioState({ status: 'idle', chapter: 0, total: 0 });
+    setReaderAudioState({ status: 'idle', chapter: 0 });
   };
 
   const handleToggleBookAudioPause = () => {
@@ -964,6 +976,43 @@ const App = () => {
       setAudioState((prev) => ({ ...prev, status: 'paused' }));
     }
   };
+
+  const handlePlayReaderAudio = async () => {
+    audioModeRef.current = 'reader';
+    try {
+      await playAudioChapter(readerBookAbbrev, readerChapter, audioNarrator);
+    } catch {
+      setReaderAudioState({ status: 'error', chapter: 0 });
+    }
+  };
+
+  const handleToggleReaderAudioPause = () => {
+    if (!audioRef.current) return;
+    if (audioRef.current.paused) {
+      audioRef.current.play();
+      setReaderAudioState((prev) => ({ ...prev, status: 'playing' }));
+    } else {
+      audioRef.current.pause();
+      setReaderAudioState((prev) => ({ ...prev, status: 'paused' }));
+    }
+  };
+
+  // Auto-switch the reader's audio to match the book/chapter currently being read.
+  useEffect(() => {
+    if (audioModeRef.current !== 'reader') return;
+    if (readerAudioState.status !== 'playing' && readerAudioState.status !== 'paused') return;
+    if (readerAudioState.chapter === readerChapter) return;
+    const wasPaused = readerAudioState.status === 'paused';
+    playAudioChapter(readerBookAbbrev, readerChapter, audioNarrator)
+      .then(() => {
+        if (wasPaused && audioRef.current) {
+          audioRef.current.pause();
+          setReaderAudioState((prev) => ({ ...prev, status: 'paused' }));
+        }
+      })
+      .catch(() => setReaderAudioState({ status: 'error', chapter: 0 }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readerBookAbbrev, readerChapter]);
 
   useEffect(() => () => {
     if (audioRef.current) {
@@ -3096,6 +3145,54 @@ const restoreRemoteProject = async (id) => {
               >
                 Next ›
               </button>
+            </div>
+          </div>
+
+          <div className="mb-6 flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-panel">
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold text-slate-900">Listen to this chapter</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                {readerAudioState.status === 'error'
+                  ? "Couldn't load audio for this chapter/narrator."
+                  : `Audio follows ${readerBook?.name} ${readerChapter} as you browse.`}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={audioNarrator}
+                onChange={(e) => setAudioNarrator(e.target.value)}
+                className="rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+              >
+                <option value="david">David</option>
+                <option value="hays">Hays</option>
+                <option value="souer">Souer</option>
+              </select>
+              {readerAudioState.status === 'playing' || readerAudioState.status === 'paused' ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleToggleReaderAudioPause}
+                    className="rounded-xl bg-sky-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-sky-500"
+                  >
+                    {readerAudioState.status === 'paused' ? 'Resume' : 'Pause'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleStopBookAudio}
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+                  >
+                    Stop
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handlePlayReaderAudio}
+                  className="rounded-xl bg-sky-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-sky-500"
+                >
+                  Play
+                </button>
+              )}
             </div>
           </div>
 
