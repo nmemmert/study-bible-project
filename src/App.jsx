@@ -2214,6 +2214,21 @@ const App = () => {
     }
   };
 
+  // Extract a single short English gloss from a verbose kjv_def string.
+  // e.g. "[idiom] burn (incense), be mindful..." → "burn"
+  //      "another, [idiom] (blood-) thirsty..." → "another"
+  const shortHebrewGloss = (kjvDef) => {
+    if (!kjvDef) return '';
+    let s = kjvDef.trim();
+    // strip leading [tag] tokens like [idiom], [phrase]
+    s = s.replace(/^(\[[^\]]+\]\s*)+/, '').trim();
+    // take first chunk before comma, semicolon, or opening paren
+    s = s.split(/[,;(]/)[0].trim();
+    // strip trailing punctuation
+    s = s.replace(/[.\-]+$/, '').trim();
+    return s;
+  };
+
   const ENGLISH_STOP_WORDS = new Set([
     'the', 'and', 'for', 'that', 'with', 'this', 'from', 'were', 'was', 'have', 'has',
     'had', 'are', 'but', 'not', 'you', 'your', 'his', 'her', 'their', 'they', 'them',
@@ -2280,7 +2295,8 @@ const App = () => {
           strongKey: normalized,
           lexeme: entry?.lemma ?? '',
           translit: entry?.xlit ?? '',
-          def: entry?.kjv_def ?? 'No definition found.',
+          def: shortHebrewGloss(entry?.kjv_def) || 'No definition found.',
+          fullDef: entry?.kjv_def ?? '',
           entry,
         });
         if (modalWords.length >= 20) break;
@@ -2320,7 +2336,7 @@ const App = () => {
         lexeme: w.lexeme,
         transliteration: w.translit,
         partOfSpeech: '',
-        shortDefinition: w.def,
+        shortDefinition: w.fullDef || w.def,
         definitionHtml: w.entry ? buildGreekDefinitionHtml(w.strongKey, w.entry) : '',
         loading: false,
       }));
