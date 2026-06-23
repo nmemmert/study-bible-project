@@ -1164,14 +1164,22 @@ const App = () => {
 
   const speakOriginalWord = (word, strongsNum) => {
     if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
+    if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
     const lang = strongsNum?.startsWith('H') ? 'he-IL' : 'el-GR';
-    const utt = new SpeechSynthesisUtterance(word + '   ');
-    utt.lang = lang;
-    // prefer a matching voice if available
     const voices = window.speechSynthesis.getVoices();
     const match = voices.find((v) => v.lang.startsWith(lang.split('-')[0]));
+    const utt = new SpeechSynthesisUtterance(word + '.');
+    utt.lang = lang;
+    utt.rate = 0.85;
     if (match) utt.voice = match;
+    // Chain a silent tail so the audio session fades rather than clicks shut
+    utt.onend = () => {
+      const tail = new SpeechSynthesisUtterance('     ');
+      tail.volume = 0;
+      tail.lang = lang;
+      if (match) tail.voice = match;
+      window.speechSynthesis.speak(tail);
+    };
     window.speechSynthesis.speak(utt);
   };
 
@@ -3930,11 +3938,34 @@ const restoreRemoteProject = async (id) => {
                 </h2>
               </div>
               <div className="flex items-center gap-2">
-                <div className="rounded-2xl bg-slate-100 px-3 py-2 text-sm text-slate-700">
-                  {selectedChunk
-                    ? `Chunk ${selectedChunkGlobalIndex + 1} of ${allChunks.length}`
-                    : 'Choose a chunk to study.'}
-                </div>
+                {selectedChunk && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={goToPreviousChunk}
+                      disabled={selectedChunkGlobalIndex <= 0}
+                      className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      ‹ Prev
+                    </button>
+                    <div className="rounded-2xl bg-slate-100 px-3 py-2 text-sm text-slate-700">
+                      {`Chunk ${selectedChunkGlobalIndex + 1} of ${allChunks.length}`}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={goToNextChunk}
+                      disabled={selectedChunkGlobalIndex >= allChunks.length - 1}
+                      className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Next ›
+                    </button>
+                  </>
+                )}
+                {!selectedChunk && (
+                  <div className="rounded-2xl bg-slate-100 px-3 py-2 text-sm text-slate-700">
+                    Choose a chunk to study.
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => setStudyLayout((m) => (m === 'split' ? 'stacked' : 'split'))}
