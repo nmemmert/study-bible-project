@@ -2481,7 +2481,7 @@ const App = () => {
       const extractedPartOfSpeech = extractPartOfSpeech(first.definition || '');
       updateChunkWord(chunkId, wordId, {
         strongNumber: first.topic || normalized,
-        englishGloss: gloss[strongKey] || '',
+        englishGloss: gloss[strongKey] || first.short_definition || '',
         lexeme: first.lexeme || '',
         transliteration: first.transliteration || '',
         partOfSpeech: extractedPartOfSpeech || word.partOfSpeech || '',
