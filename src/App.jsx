@@ -901,6 +901,20 @@ const App = () => {
   const [readerTotalChapters, setReaderTotalChapters] = useState(1);
   const [readerLoading, setReaderLoading] = useState(false);
   const [readerError, setReaderError] = useState('');
+  const [readerInterlinear, setReaderInterlinear] = useState(null); // full book interlinear
+  const [readerInterlinearLoading, setReaderInterlinearLoading] = useState(false);
+  const [readerSelectedVerse, setReaderSelectedVerse] = useState(null); // verse number with open interlinear panel
+  const _readerInterlinearCacheRef = useRef({});
+  const [readerFontSize, setReaderFontSize] = useState(1); // em multiplier: 0.875 | 1 | 1.125 | 1.25
+  const [readerBookmarks, setReaderBookmarks] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('reader-bookmarks') || '{}'); } catch { return {}; }
+  });
+  const [readerCrossRefs, setReaderCrossRefs] = useState(null);
+  const [readerCrossRefsLoading, setReaderCrossRefsLoading] = useState(false);
+  const [readerShowCrossRefs, setReaderShowCrossRefs] = useState(false);
+  const _readerCrossRefCacheRef = useRef({});
+  const [readerSearch, setReaderSearch] = useState('');
+  const [readerSearchActive, setReaderSearchActive] = useState(false);
   const [audioBook, setAudioBook] = useState(bookOptions[0].abbrev);
   const [audioNarrator, setAudioNarrator] = useState('souer');
   const [audioState, setAudioState] = useState({ status: 'idle', chapter: 0, total: 0 });
@@ -1101,16 +1115,122 @@ const App = () => {
   };
 
   const readerGoToPreviousChapter = () => {
-    if (readerChapter > 1) setReaderChapter((c) => c - 1);
+    if (readerChapter > 1) { setReaderChapter((c) => c - 1); setReaderSelectedVerse(null); setReaderCrossRefs(null); setReaderSearch(''); setReaderSearchActive(false); }
   };
 
   const readerGoToNextChapter = () => {
-    if (readerChapter < readerTotalChapters) setReaderChapter((c) => c + 1);
+    if (readerChapter < readerTotalChapters) { setReaderChapter((c) => c + 1); setReaderSelectedVerse(null); setReaderCrossRefs(null); setReaderSearch(''); setReaderSearchActive(false); }
   };
 
   const handleReaderBookChange = (abbrev) => {
     setReaderBookAbbrev(abbrev);
     setReaderChapter(1);
+    setReaderSelectedVerse(null);
+    setReaderInterlinear(null);
+    setReaderCrossRefs(null);
+    setReaderSearch('');
+    setReaderSearchActive(false);
+  };
+
+  const loadReaderInterlinear = async (bookAbbrev) => {
+    if (_readerInterlinearCacheRef.current[bookAbbrev]) {
+      setReaderInterlinear(_readerInterlinearCacheRef.current[bookAbbrev]);
+      return;
+    }
+    setReaderInterlinearLoading(true);
+    try {
+      const res = await fetch(`/interlinear/${bookAbbrev}.json`);
+      if (!res.ok) throw new Error('no interlinear');
+      const data = await res.json();
+      _readerInterlinearCacheRef.current[bookAbbrev] = data;
+      setReaderInterlinear(data);
+    } catch {
+      setReaderInterlinear(null);
+    } finally {
+      setReaderInterlinearLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentPage !== 'reader') return;
+    loadReaderInterlinear(readerBookAbbrev);
+    setReaderSelectedVerse(null);
+  }, [currentPage, readerBookAbbrev]);
+
+  useEffect(() => {
+    if (currentPage !== 'reader' || !readerShowCrossRefs) return;
+    loadReaderCrossRefs(readerBookAbbrev, readerChapter);
+  }, [currentPage, readerBookAbbrev, readerChapter, readerShowCrossRefs]);
+
+  const speakOriginalWord = (word, strongsNum) => {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const lang = strongsNum?.startsWith('H') ? 'he-IL' : 'el-GR';
+    const utt = new SpeechSynthesisUtterance(word);
+    utt.lang = lang;
+    // prefer a matching voice if available
+    const voices = window.speechSynthesis.getVoices();
+    const match = voices.find((v) => v.lang.startsWith(lang.split('-')[0]));
+    if (match) utt.voice = match;
+    window.speechSynthesis.speak(utt);
+  };
+
+  // Reader helpers: bookmarks, cross-refs, copy verse
+  const BOOKMARK_COLORS = ['#fef08a', '#bbf7d0', '#bfdbfe', '#fecaca', '#e9d5ff'];
+
+  const toggleReaderBookmark = (verseKey) => {
+    setReaderBookmarks((prev) => {
+      const next = { ...prev };
+      if (next[verseKey]) {
+        delete next[verseKey];
+      } else {
+        const usedColors = Object.values(next);
+        const color = BOOKMARK_COLORS.find((c) => !usedColors.includes(c)) ?? BOOKMARK_COLORS[0];
+        next[verseKey] = color;
+      }
+      try { localStorage.setItem('reader-bookmarks', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const cycleBookmarkColor = (verseKey) => {
+    setReaderBookmarks((prev) => {
+      const cur = prev[verseKey];
+      if (!cur) return prev;
+      const idx = BOOKMARK_COLORS.indexOf(cur);
+      const next = { ...prev, [verseKey]: BOOKMARK_COLORS[(idx + 1) % BOOKMARK_COLORS.length] };
+      try { localStorage.setItem('reader-bookmarks', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const loadReaderCrossRefs = async (bookAbbrev, chapterNumber) => {
+    const cacheKey = `${bookAbbrev}/${chapterNumber}`;
+    if (_readerCrossRefCacheRef.current[cacheKey]) {
+      setReaderCrossRefs(_readerCrossRefCacheRef.current[cacheKey]);
+      return;
+    }
+    setReaderCrossRefsLoading(true);
+    try {
+      const res = await fetch(`https://bible.helloao.org/api/d/open-cross-ref/${bookAbbrev}/${chapterNumber}.json`);
+      if (!res.ok) throw new Error('no cross-refs');
+      const data = await res.json();
+      const byVerse = {};
+      for (const item of data.chapter?.content ?? []) {
+        if (item.references?.length) byVerse[item.verse] = item.references;
+      }
+      _readerCrossRefCacheRef.current[cacheKey] = byVerse;
+      setReaderCrossRefs(byVerse);
+    } catch {
+      setReaderCrossRefs(null);
+    } finally {
+      setReaderCrossRefsLoading(false);
+    }
+  };
+
+  const copyVerse = (bookName, chapterNum, verseNum, text) => {
+    const citation = `${bookName} ${chapterNum}:${verseNum} BSB — ${text}`;
+    navigator.clipboard?.writeText(citation);
   };
 
   // ---------------------------------------------------------------------------
@@ -3103,7 +3223,8 @@ const restoreRemoteProject = async (id) => {
           </div>
         </header>
         <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
-          <div className="mb-6 flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-panel">
+          {/* Navigation + tools bar */}
+          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-panel">
             <label className="text-sm text-slate-600">
               Book{' '}
               <select
@@ -3120,7 +3241,7 @@ const restoreRemoteProject = async (id) => {
               Chapter{' '}
               <select
                 value={readerChapter}
-                onChange={(e) => setReaderChapter(Number(e.target.value))}
+                onChange={(e) => { setReaderChapter(Number(e.target.value)); setReaderSelectedVerse(null); setReaderCrossRefs(null); setReaderSearch(''); setReaderSearchActive(false); }}
                 className="ml-1 rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
               >
                 {Array.from({ length: readerTotalChapters }, (_, i) => i + 1).map((num) => (
@@ -3129,26 +3250,60 @@ const restoreRemoteProject = async (id) => {
               </select>
             </label>
             <div className="ml-auto flex items-center gap-2">
-              <button
-                type="button"
-                onClick={readerGoToPreviousChapter}
-                disabled={readerChapter <= 1}
-                className="rounded-xl border border-slate-300 bg-white px-4 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              >
+              <button type="button" onClick={readerGoToPreviousChapter} disabled={readerChapter <= 1}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
                 ‹ Prev
               </button>
-              <button
-                type="button"
-                onClick={readerGoToNextChapter}
-                disabled={readerChapter >= readerTotalChapters}
-                className="rounded-xl border border-slate-300 bg-white px-4 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              >
+              <button type="button" onClick={readerGoToNextChapter} disabled={readerChapter >= readerTotalChapters}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
                 Next ›
               </button>
             </div>
           </div>
 
-          <div className="mb-6 flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-panel">
+          {/* Tool strip: font size · cross-refs · search */}
+          <div className="mb-4 flex flex-wrap items-center gap-2 rounded-3xl border border-slate-200 bg-white px-4 py-3 shadow-panel">
+            {/* Font size */}
+            <span className="text-xs text-slate-500 mr-1">Text size</span>
+            {[['S', 0.875], ['M', 1], ['L', 1.125], ['XL', 1.25]].map(([label, size]) => (
+              <button key={label} type="button"
+                onClick={() => setReaderFontSize(size)}
+                className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${readerFontSize === size ? 'bg-slate-900 text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
+                {label}
+              </button>
+            ))}
+            <div className="mx-2 h-4 w-px bg-slate-200" />
+            {/* Cross-refs toggle */}
+            <button type="button"
+              onClick={() => { setReaderShowCrossRefs((v) => !v); if (!readerShowCrossRefs) loadReaderCrossRefs(readerBookAbbrev, readerChapter); }}
+              className={`rounded-lg px-3 py-1 text-xs font-semibold transition ${readerShowCrossRefs ? 'bg-amber-100 text-amber-800' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
+              {readerCrossRefsLoading ? 'Loading refs…' : '🔗 Cross-Refs'}
+            </button>
+            <div className="mx-2 h-4 w-px bg-slate-200" />
+            {/* In-chapter search */}
+            {readerSearchActive ? (
+              <div className="flex items-center gap-1">
+                <input
+                  autoFocus
+                  type="text"
+                  value={readerSearch}
+                  onChange={(e) => setReaderSearch(e.target.value)}
+                  placeholder="Search this chapter…"
+                  className="rounded-xl border border-slate-300 bg-slate-50 px-3 py-1 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                />
+                <button type="button" onClick={() => { setReaderSearch(''); setReaderSearchActive(false); }}
+                  className="rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50">✕</button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setReaderSearchActive(true)}
+                className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                🔍 Search
+              </button>
+            )}
+          </div>
+
+          {/* Audio player */}
+          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-panel">
             <div className="flex-1">
               <h3 className="text-sm font-semibold text-slate-900">Listen to this chapter</h3>
               <p className="mt-1 text-xs text-slate-500">
@@ -3158,60 +3313,168 @@ const restoreRemoteProject = async (id) => {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={audioNarrator}
-                onChange={(e) => setAudioNarrator(e.target.value)}
-                className="rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-              >
+              <select value={audioNarrator} onChange={(e) => setAudioNarrator(e.target.value)}
+                className="rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200">
                 <option value="david">David</option>
                 <option value="hays">Hays</option>
                 <option value="souer">Souer</option>
               </select>
               {readerAudioState.status === 'playing' || readerAudioState.status === 'paused' ? (
                 <>
-                  <button
-                    type="button"
-                    onClick={handleToggleReaderAudioPause}
-                    className="rounded-xl bg-sky-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-sky-500"
-                  >
+                  <button type="button" onClick={handleToggleReaderAudioPause}
+                    className="rounded-xl bg-sky-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-sky-500">
                     {readerAudioState.status === 'paused' ? 'Resume' : 'Pause'}
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleStopBookAudio}
-                    className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-                  >
+                  <button type="button" onClick={handleStopBookAudio}
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
                     Stop
                   </button>
                 </>
               ) : (
-                <button
-                  type="button"
-                  onClick={handlePlayReaderAudio}
-                  className="rounded-xl bg-sky-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-sky-500"
-                >
+                <button type="button" onClick={handlePlayReaderAudio}
+                  className="rounded-xl bg-sky-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-sky-500">
                   Play
                 </button>
               )}
             </div>
           </div>
 
+          {/* Verses */}
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-panel">
-            <h2 className="mb-4 text-xl font-semibold text-slate-900">
+            <h2 className="mb-1 text-xl font-semibold text-slate-900">
               {readerBook?.name} {readerChapter} <span className="text-sm font-normal text-slate-500">(BSB)</span>
             </h2>
+            {readerInterlinear && (
+              <p className="mb-4 text-xs text-slate-400">Click a verse number to see original words &amp; pronunciation · bookmark icon to save · copy icon to copy</p>
+            )}
+            {!readerInterlinear && (
+              <p className="mb-4 text-xs text-slate-400">Hover a verse for actions</p>
+            )}
             {readerLoading && <p className="text-sm text-slate-500">Loading…</p>}
             {readerError && <p className="text-sm text-rose-600">{readerError}</p>}
-            {!readerLoading && !readerError && (
-              <div className="space-y-2 leading-relaxed text-slate-800">
-                {readerVerses.map((verse) => (
-                  <p key={verse.number}>
-                    <sup className="mr-1 font-semibold text-slate-400">{verse.number}</sup>
-                    {verse.text}
-                  </p>
-                ))}
-              </div>
-            )}
+            {!readerLoading && !readerError && (() => {
+              const searchLower = readerSearch.trim().toLowerCase();
+              const filtered = searchLower
+                ? readerVerses.filter((v) => v.text.toLowerCase().includes(searchLower))
+                : readerVerses;
+              if (searchLower && filtered.length === 0) {
+                return <p className="text-sm text-slate-500">No verses match "{readerSearch}".</p>;
+              }
+              return (
+                <div className="space-y-3 leading-relaxed text-slate-800" style={{ fontSize: `${readerFontSize}em` }}>
+                  {filtered.map((verse) => {
+                    const chapterInterlinear = readerInterlinear?.[String(readerChapter)];
+                    const verseWords = chapterInterlinear?.[String(verse.number)];
+                    const isOpen = readerSelectedVerse === verse.number;
+                    const verseKey = `${readerBookAbbrev}-${readerChapter}-${verse.number}`;
+                    const bmColor = readerBookmarks[verseKey];
+                    const crossRefs = readerCrossRefs?.[verse.number];
+
+                    const highlightText = (text) => {
+                      if (!searchLower) return text;
+                      const idx = text.toLowerCase().indexOf(searchLower);
+                      if (idx === -1) return text;
+                      return (
+                        <>
+                          {text.slice(0, idx)}
+                          <mark className="bg-yellow-200 rounded px-0.5">{text.slice(idx, idx + searchLower.length)}</mark>
+                          {text.slice(idx + searchLower.length)}
+                        </>
+                      );
+                    };
+
+                    return (
+                      <div key={verse.number} className="group rounded-xl transition"
+                        style={bmColor ? { backgroundColor: bmColor + '55', borderLeft: `3px solid ${bmColor}`, paddingLeft: '0.5rem' } : {}}>
+                        <div className="flex items-start gap-1">
+                          {/* Verse number / interlinear toggle */}
+                          <button type="button"
+                            onClick={() => setReaderSelectedVerse(isOpen ? null : verse.number)}
+                            className={`mt-0.5 shrink-0 rounded px-1 text-xs font-bold transition ${
+                              verseWords
+                                ? isOpen ? 'bg-sky-600 text-white' : 'text-sky-600 hover:bg-sky-50'
+                                : 'cursor-default text-slate-400'
+                            }`}
+                            title={verseWords ? 'Show original words' : undefined}>
+                            {verse.number}
+                          </button>
+                          {/* Verse text */}
+                          <p className="flex-1">{highlightText(verse.text)}</p>
+                          {/* Action icons — visible on hover */}
+                          <span className="ml-1 mt-0.5 flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button type="button"
+                              onClick={() => toggleReaderBookmark(verseKey)}
+                              className="rounded p-0.5 text-base leading-none hover:bg-slate-100"
+                              title={bmColor ? 'Remove bookmark' : 'Bookmark this verse'}>
+                              {bmColor ? '🔖' : '🏷️'}
+                            </button>
+                            {bmColor && (
+                              <button type="button"
+                                onClick={() => cycleBookmarkColor(verseKey)}
+                                className="rounded p-0.5 text-base leading-none hover:bg-slate-100"
+                                title="Change highlight colour">
+                                🎨
+                              </button>
+                            )}
+                            <button type="button"
+                              onClick={() => copyVerse(readerBook?.name, readerChapter, verse.number, verse.text)}
+                              className="rounded p-0.5 text-base leading-none hover:bg-slate-100"
+                              title="Copy verse">
+                              📋
+                            </button>
+                          </span>
+                        </div>
+
+                        {/* Cross-references */}
+                        {readerShowCrossRefs && crossRefs && (
+                          <div className="mt-1 ml-6 flex flex-wrap gap-1">
+                            {crossRefs.slice(0, 8).map((ref, i) => {
+                              const label = formatCrossRef(ref);
+                              return (
+                                <span key={i} className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 cursor-default" title={`Score: ${ref.score ?? '?'}`}>
+                                  {label}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Interlinear panel */}
+                        {isOpen && verseWords && (
+                          <div className="mt-2 mb-1 ml-6 rounded-2xl border border-sky-100 bg-sky-50 p-3">
+                            <div className="flex flex-wrap gap-2">
+                              {verseWords.map((w, i) => {
+                                const isHebrew = w.s?.startsWith('H');
+                                const canSpeak = isHebrew || w.s?.startsWith('G');
+                                return (
+                                  <div key={i} className="rounded-xl border border-sky-200 bg-white p-2 text-center shadow-sm"
+                                    style={{ minWidth: '4.5rem', maxWidth: '9rem' }}>
+                                    <div className={`text-lg font-medium leading-tight ${isHebrew ? 'font-serif' : ''}`} dir={isHebrew ? 'rtl' : 'ltr'}>
+                                      {w.o}
+                                    </div>
+                                    <div className="mt-0.5 text-xs text-slate-500 italic">{w.t}</div>
+                                    <div className="mt-1 text-xs font-semibold text-slate-800">{w.g}</div>
+                                    {w.p && <div className="mt-0.5 text-[10px] text-slate-400 leading-tight">{w.p}</div>}
+                                    {w.s && <div className="mt-0.5 text-[10px] text-slate-400">{w.s}</div>}
+                                    {canSpeak && (
+                                      <button type="button" onClick={() => speakOriginalWord(w.o, w.s)}
+                                        className="mt-1.5 rounded-lg bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 hover:bg-sky-200 transition"
+                                        title={`Pronounce in ${isHebrew ? 'Hebrew' : 'Greek'}`}>
+                                        🔊 Speak
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         </main>
       </div>
@@ -4076,7 +4339,19 @@ const restoreRemoteProject = async (id) => {
                           ) : null}
                           <div className="mt-4 grid gap-4 sm:grid-cols-3">
                             <label className="text-sm text-slate-600">
-                              Greek word
+                              <span className="flex items-center gap-2">
+                                {word.strongNumber?.startsWith('H') ? 'Hebrew word' : 'Greek word'}
+                                {word.lexeme && (
+                                  <button
+                                    type="button"
+                                    onClick={() => speakOriginalWord(word.lexeme, word.strongNumber)}
+                                    className="rounded-lg bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 hover:bg-sky-200 transition"
+                                    title="Hear pronunciation"
+                                  >
+                                    🔊 Speak
+                                  </button>
+                                )}
+                              </span>
                               <input
                                 type="text"
                                 value={word.lexeme}
