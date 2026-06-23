@@ -1166,7 +1166,7 @@ const App = () => {
     if (!window.speechSynthesis) return;
     window.speechSynthesis.cancel();
     const lang = strongsNum?.startsWith('H') ? 'he-IL' : 'el-GR';
-    const utt = new SpeechSynthesisUtterance(word);
+    const utt = new SpeechSynthesisUtterance(word + '   ');
     utt.lang = lang;
     // prefer a matching voice if available
     const voices = window.speechSynthesis.getVoices();
