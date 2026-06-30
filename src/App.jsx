@@ -808,6 +808,53 @@ function parseCrossRefString(ref) {
   };
 }
 
+// Parses a "Passage" cell like "1:1–2", "9:32–10:23", "9:1–19a", or "—" (no specific passage)
+function parseEpisodePassage(raw) {
+  const str = (raw ?? '').trim().replace(/(\d)[a-z]\b/g, '$1'); // strip "19a"/"19b" verse-letter suffixes
+  if (!str || /^[-–—]+$/.test(str)) return null;
+  const match = str.match(/^(\d+):(\d+)\s*[-–—]\s*(?:(\d+):)?(\d+)$/)
+    ?? str.match(/^(\d+):(\d+)$/);
+  if (!match) return 'invalid';
+  const [, ch1, v1, ch2, v2raw] = match;
+  const endChapter = ch2 ? Number(ch2) : Number(ch1);
+  const endVerse = v2raw !== undefined ? Number(v2raw) : Number(v1);
+  return {
+    startChapter: Number(ch1),
+    startVerse: Number(v1),
+    endChapter,
+    endVerse,
+  };
+}
+
+// Extracts an "Ep. # / Title / Passage" episode list from a docx, including both
+// table rows and standalone "Ep. N — Title" paragraphs (e.g. part intros).
+async function parseEpisodeListDocx(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const { value: html } = await mammoth.convertToHtml({ arrayBuffer });
+  const parsedDoc = new DOMParser().parseFromString(html, 'text/html');
+
+  const episodes = new Map(); // episodeNumber -> { episodeNumber, title, passage }
+
+  parsedDoc.querySelectorAll('table tr').forEach((row) => {
+    const cells = Array.from(row.querySelectorAll('td,th')).map((c) => c.textContent.trim());
+    if (cells.length < 3) return;
+    const [epRaw, title, passage] = cells;
+    if (!/^\d+$/.test(epRaw)) return; // header row
+    episodes.set(epRaw, { episodeNumber: epRaw, title, passage });
+  });
+
+  parsedDoc.querySelectorAll('p').forEach((p) => {
+    const match = p.textContent.trim().match(/^Ep\.\s*(\d+)\s*[-–—]\s*(.+)$/);
+    if (!match) return;
+    const [, epRaw, title] = match;
+    if (!episodes.has(epRaw)) {
+      episodes.set(epRaw, { episodeNumber: epRaw, title: title.trim(), passage: '—' });
+    }
+  });
+
+  return Array.from(episodes.values()).sort((a, b) => Number(a.episodeNumber) - Number(b.episodeNumber));
+}
+
 // A cross-reference chip that fetches and shows the referenced verse text on hover
 function CrossRefChip({ label, onRemove, loadVerseText }) {
   const [hovered, setHovered] = useState(false);
@@ -895,6 +942,13 @@ const App = () => {
   const [homeTagFilter, setHomeTagFilter] = useState('');
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
+  const [importBookAbbrev, setImportBookAbbrev] = useState(bookOptions[0].abbrev);
+  const [importTranslation, setImportTranslation] = useState('BSB');
+  const [importTitle, setImportTitle] = useState('');
+  const [importFile, setImportFile] = useState(null);
+  const [importPreview, setImportPreview] = useState(null); // parsed episode specs, before fetching chapters
+  const [importBusy, setImportBusy] = useState(false);
+  const [importError, setImportError] = useState('');
   const [readerBookAbbrev, setReaderBookAbbrev] = useState(bookOptions[0].abbrev);
   const [readerChapter, setReaderChapter] = useState(1);
   const [readerVerses, setReaderVerses] = useState([]);
@@ -2763,6 +2817,153 @@ const App = () => {
     setCurrentPage('setup');
   };
 
+  const openImportProject = () => {
+    setProject(null);
+    setImportBookAbbrev(bookOptions[0].abbrev);
+    setImportTranslation('BSB');
+    setImportTitle('');
+    setImportFile(null);
+    setImportPreview(null);
+    setImportError('');
+    setCurrentPage('import');
+  };
+
+  const handleImportFileChange = async (file) => {
+    setImportFile(file);
+    setImportPreview(null);
+    setImportError('');
+    if (!file) return;
+    setImportBusy(true);
+    try {
+      const episodes = await parseEpisodeListDocx(file);
+      if (episodes.length === 0) {
+        throw new Error('No "Ep. / Title / Passage" table found in that document.');
+      }
+      const specs = episodes.map((ep) => ({ ...ep, parsed: parseEpisodePassage(ep.passage) }));
+      setImportPreview(specs);
+    } catch (error) {
+      setImportError(error.message || 'Failed to read that document.');
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
+  const runEpisodeImport = async () => {
+    if (!importPreview || importPreview.length === 0) {
+      setImportError('Choose a .docx file first.');
+      return;
+    }
+    setImportBusy(true);
+    setImportError('');
+    try {
+      const selectedBook = bookOptions.find((b) => b.abbrev === importBookAbbrev) ?? bookOptions[0];
+
+      const chapterNumbersNeeded = new Set();
+      importPreview.forEach((spec) => {
+        if (spec.parsed && spec.parsed !== 'invalid') {
+          chapterNumbersNeeded.add(spec.parsed.startChapter);
+          chapterNumbersNeeded.add(spec.parsed.endChapter);
+        }
+      });
+      const sortedChapters = Array.from(chapterNumbersNeeded).sort((a, b) => a - b);
+      if (sortedChapters.length === 0) {
+        throw new Error('No verse passages found to import.');
+      }
+
+      const versesByChapter = {};
+      for (const chNum of sortedChapters) {
+        const response = await fetch(
+          `https://bible.helloao.org/api/${importTranslation}/${selectedBook.abbrev}/${chNum}.json`,
+        );
+        if (!response.ok) throw new Error(`Unable to load ${selectedBook.name} ${chNum}.`);
+        const data = await response.json();
+        const verses = parseBibleChapter(data);
+        if (!verses.length) throw new Error(`No verses returned for ${selectedBook.name} ${chNum}.`);
+        versesByChapter[chNum] = verses;
+      }
+
+      const chapterIndexByNum = new Map(sortedChapters.map((n, idx) => [n, idx]));
+      const chapters = sortedChapters.map((chNum) => ({
+        book: selectedBook.name,
+        bookAbbrev: selectedBook.abbrev,
+        chapter: chNum,
+        verses: versesByChapter[chNum],
+        chunks: [],
+      }));
+
+      // Markers (rows with no passage) attach to the nearest upcoming chapter with a
+      // real passage, or fall back to the previous one for trailing markers.
+      const anchorChapterFor = importPreview.map((spec, i) => {
+        if (spec.parsed && spec.parsed !== 'invalid') return spec.parsed.startChapter;
+        for (let j = i + 1; j < importPreview.length; j += 1) {
+          const next = importPreview[j].parsed;
+          if (next && next !== 'invalid') return next.startChapter;
+        }
+        for (let j = i - 1; j >= 0; j -= 1) {
+          const prev = importPreview[j].parsed;
+          if (prev && prev !== 'invalid') return prev.startChapter;
+        }
+        return sortedChapters[0];
+      });
+
+      importPreview.forEach((spec, i) => {
+        if (spec.parsed === 'invalid') return; // skip unparseable rows entirely
+        const chIdx = chapterIndexByNum.get(anchorChapterFor[i]);
+        if (chIdx == null) return;
+        const target = chapters[chIdx];
+
+        const baseChunk = {
+          id: makeId(),
+          observation: '',
+          interpretation: '',
+          application: '',
+          crossReferences: [],
+          greekWords: [],
+          generalNotes: '',
+          episodeNumber: spec.episodeNumber,
+          episodeTitle: spec.title,
+          finalScript: '',
+          tags: [],
+        };
+
+        if (!spec.parsed) {
+          // No passage (e.g. a part intro/review) -> zero-length marker chunk.
+          target.chunks.push({ ...baseChunk, startVerse: 0, endVerse: 0, spilloverEndVerse: null });
+          return;
+        }
+
+        const { startChapter, startVerse, endChapter, endVerse } = spec.parsed;
+        if (endChapter === startChapter) {
+          target.chunks.push({ ...baseChunk, startVerse, endVerse, spilloverEndVerse: null });
+        } else {
+          const lastVerseOfStartChapter = versesByChapter[startChapter]?.at(-1)?.number ?? endVerse;
+          target.chunks.push({
+            ...baseChunk,
+            startVerse,
+            endVerse: lastVerseOfStartChapter,
+            spilloverEndVerse: endVerse,
+          });
+        }
+      });
+
+      const newProject = {
+        id: makeId(),
+        title: importTitle.trim() || `${selectedBook.name} Episodes`,
+        translation: importTranslation,
+        lastEdited: Date.now(),
+        selectedChunkId: null,
+        chapters,
+      };
+      setProject(newProject);
+      setActiveChapterIndex(0);
+      setCurrentPage('setup');
+    } catch (error) {
+      setImportError(error.message || 'Import failed.');
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
   const resumeProject = (id) => {
     const loaded = loadProjectById(id);
     if (!loaded) return;
@@ -2945,6 +3146,13 @@ const restoreRemoteProject = async (id) => {
                 className="rounded-xl border border-slate-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
               >
                 📖 Read Bible
+              </button>
+              <button
+                type="button"
+                onClick={openImportProject}
+                className="rounded-xl border border-slate-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
+              >
+                📥 Import Episodes
               </button>
               <button
                 type="button"
@@ -3508,6 +3716,125 @@ const restoreRemoteProject = async (id) => {
   // ---------------------------------------------------------------------------
   // SETUP PAGE (chunk builder)
   // ---------------------------------------------------------------------------
+  if (currentPage === 'import') {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-900">
+        <header className="border-b border-slate-200 bg-slate-900 text-white shadow-sm">
+          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-5 sm:px-6 lg:px-8">
+            <div>
+              <p className="text-sm uppercase tracking-[0.24em] text-slate-300">Bible Study Project</p>
+              <h1 className="mt-2 text-2xl font-semibold">Import Episode List</h1>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCurrentPage('home')}
+              className="rounded-xl border border-slate-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
+            >
+              ← Back
+            </button>
+          </div>
+        </header>
+
+        <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
+          <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-panel space-y-5">
+            <p className="text-sm text-slate-500">
+              Upload a .docx with an episode table (Ep. # / Title / Passage, e.g. "1:1–2") and it'll
+              create a new project with chapters and chunks already labeled from it.
+            </p>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block text-sm font-medium text-slate-700">
+                Book
+                <select
+                  value={importBookAbbrev}
+                  onChange={(e) => setImportBookAbbrev(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                >
+                  {bookOptions.map((b) => (
+                    <option key={b.abbrev} value={b.abbrev}>{b.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Translation
+                <select
+                  value={importTranslation}
+                  onChange={(e) => setImportTranslation(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                >
+                  {availableTranslations.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <label className="block text-sm font-medium text-slate-700">
+              Project title
+              <input
+                type="text"
+                value={importTitle}
+                onChange={(e) => setImportTitle(e.target.value)}
+                placeholder={`${bookOptions.find((b) => b.abbrev === importBookAbbrev)?.name ?? ''} Episodes`}
+                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+              />
+            </label>
+
+            <label className="block text-sm font-medium text-slate-700">
+              Episode list (.docx)
+              <input
+                type="file"
+                accept=".docx"
+                onChange={(e) => handleImportFileChange(e.target.files?.[0] ?? null)}
+                className="mt-1 block w-full text-sm text-slate-600 file:mr-4 file:rounded-xl file:border-0 file:bg-slate-700 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-600"
+              />
+            </label>
+
+            {importBusy && <p className="text-sm text-slate-500">Working…</p>}
+            {importError && <p className="text-sm text-rose-600">{importError}</p>}
+
+            {importPreview && !importBusy && (
+              <div className="space-y-3">
+                <p className="text-sm font-semibold text-slate-700">
+                  {importPreview.length} episode{importPreview.length === 1 ? '' : 's'} found
+                  {' · '}
+                  {importPreview.filter((s) => s.parsed && s.parsed !== 'invalid').length} with passages
+                </p>
+                <div className="max-h-80 overflow-y-auto rounded-xl border border-slate-200">
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {importPreview.map((spec) => (
+                        <tr key={spec.episodeNumber} className="border-b border-slate-100 last:border-0">
+                          <td className="px-3 py-1.5 text-slate-500">Ep. {spec.episodeNumber}</td>
+                          <td className="px-3 py-1.5 text-slate-900">{spec.title}</td>
+                          <td className="px-3 py-1.5 text-right text-slate-500">
+                            {spec.parsed === 'invalid'
+                              ? <span className="text-rose-600">unrecognized — skipped</span>
+                              : spec.parsed
+                                ? spec.passage
+                                : <span className="text-slate-400">marker (no passage)</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button
+                  type="button"
+                  onClick={runEpisodeImport}
+                  disabled={importBusy}
+                  className="rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                >
+                  Create Project from Import
+                </button>
+              </div>
+            )}
+          </section>
+        </main>
+      </div>
+    );
+  }
+
   if (currentPage === 'setup') {
     const chapterTabs = project?.chapters ?? [];
 
