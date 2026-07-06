@@ -1003,8 +1003,8 @@ const App = () => {
   const [typedChunkBulk, setTypedChunkBulk] = useState('');
   const saveTimerRef = useRef(null);
   const [syncStatus, setSyncStatus] = useState('');   // '' | 'syncing' | 'synced' | 'error'
-  const [remoteOnlyProjects, setRemoteOnlyProjects] = useState([]); // projects on server not in localStorage
   const [staleLocalProjects, setStaleLocalProjects] = useState([]); // projects where server is newer
+  const [autoRestoredCount, setAutoRestoredCount] = useState(null); // brief "synced from another device" toast
   const [suggestingGreekForChunkId, setSuggestingGreekForChunkId] = useState(null);
   const [suggestingHebrewForChunkId, setSuggestingHebrewForChunkId] = useState(null);
   // suggestModal: null | { chunkId, words: [{ strongKey, lexeme, translit, def }] }
@@ -1389,25 +1389,40 @@ const App = () => {
 
   // Once we know who's signed in, reconcile the local project index against the server.
   // Runs on every authUser change (including logout -> different login) so a previous
-  // account's remote-only/stale suggestions never linger after switching users.
+  // account's stale suggestions never linger after switching users. Projects that exist
+  // on the server but not on this device (e.g. a brand new browser) are pulled down
+  // automatically instead of requiring a manual "Restore" click per project.
   useEffect(() => {
     if (!authUser) {
-      setRemoteOnlyProjects([]);
       setStaleLocalProjects([]);
       return;
     }
+    let cancelled = false;
     const localIndex = loadProjectIndex();
-    listRemoteProjects().then((result) => {
-      if (!result.ok) return;
+    listRemoteProjects().then(async (result) => {
+      if (!result.ok || cancelled) return;
       const localMap = new Map(localIndex.map((e) => [e.id, e]));
+
       const missing = result.data.filter((e) => !localMap.has(e.id));
-      setRemoteOnlyProjects(missing);
+      if (missing.length > 0) {
+        const fetched = await Promise.all(missing.map((e) => loadRemoteProject(e.id)));
+        fetched.filter((r) => r.ok).forEach((r) => saveProjectToStorage(r.data));
+        if (cancelled) return;
+        const restoredCount = fetched.filter((r) => r.ok).length;
+        if (restoredCount > 0) {
+          setProjectIndex(loadProjectIndex());
+          setAutoRestoredCount(restoredCount);
+          window.setTimeout(() => setAutoRestoredCount(null), 4000);
+        }
+      }
+
       const stale = result.data.filter((e) => {
         const local = localMap.get(e.id);
         return local && (e.lastEdited ?? 0) > (local.lastEdited ?? 0);
       });
-      setStaleLocalProjects(stale);
+      if (!cancelled) setStaleLocalProjects(stale);
     });
+    return () => { cancelled = true; };
   }, [authUser]);
 
   useEffect(() => {
@@ -3088,17 +3103,6 @@ const deleteProject = (id) => {
     deleteRemoteProject(id); // fire-and-forget
   };
 
-const restoreRemoteProject = async (id) => {
-   const result = await loadRemoteProject(id);
-   if (!result.ok) {
-     alert('Could not restore project from server.');
-     return;
-   }
-   saveProjectToStorage(result.data);
-   setProjectIndex(loadProjectIndex());
-   setRemoteOnlyProjects((prev) => prev.filter((e) => e.id !== id));
- };
-
   const pullLatestFromServer = async (id) => {
     const result = await loadRemoteProject(id);
     if (!result.ok) {
@@ -3635,23 +3639,11 @@ const restoreRemoteProject = async (id) => {
           </div>
         </header>
         <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-          {remoteOnlyProjects.length > 0 && (
-            <div className="mb-6 rounded-2xl border border-sky-200 bg-sky-50 p-4">
-              <p className="mb-3 text-sm font-semibold text-sky-800">
-                📥 {remoteOnlyProjects.length} project{remoteOnlyProjects.length > 1 ? 's' : ''} found on the server that aren't saved locally:
+          {autoRestoredCount !== null && (
+            <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+              <p className="text-sm font-semibold text-emerald-800">
+                📥 Synced {autoRestoredCount} project{autoRestoredCount > 1 ? 's' : ''} from another device.
               </p>
-              <div className="flex flex-wrap gap-2">
-                {remoteOnlyProjects.map((entry) => (
-                  <button
-                    key={entry.id}
-                    type="button"
-                    onClick={() => restoreRemoteProject(entry.id)}
-                    className="rounded-xl bg-sky-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-600"
-                  >
-                    Restore "{entry.title}"
-                  </button>
-                ))}
-              </div>
             </div>
           )}
           {staleLocalProjects.length > 0 && (
