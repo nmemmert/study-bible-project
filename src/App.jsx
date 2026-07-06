@@ -3735,10 +3735,10 @@ const deleteProject = (id) => {
     }
 
     return (
-      <div className="grid min-h-screen bg-slate-900 lg:grid-cols-2">
-        {/* Branding / feature panel — hidden on small screens to keep the form front and center there */}
-        <div className="hidden flex-col justify-between p-12 lg:flex">
-          <div>
+      <div className="flex min-h-screen items-center justify-center bg-slate-900 px-4 py-12">
+        <div className="grid w-full max-w-5xl items-center gap-16 lg:grid-cols-2">
+          {/* Branding / feature panel — hidden on small screens to keep the form front and center there */}
+          <div className="hidden lg:block">
             <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Bible Study Project</p>
             <h1 className="mt-4 text-3xl font-semibold leading-tight text-white">
               Deep Bible study,<br />organized chunk by chunk.
@@ -3747,23 +3747,22 @@ const deleteProject = (id) => {
               Split any passage into chunks and work through Observation, Interpretation, and
               Application notes alongside Greek &amp; Hebrew word studies, cross-references, and commentary.
             </p>
+            <ul className="mt-8 space-y-4 text-sm text-slate-300">
+              <li className="flex items-center gap-3"><span className="text-lg">📖</span> Chunk-by-chunk OIA notes on any passage</li>
+              <li className="flex items-center gap-3"><span className="text-lg">🔤</span> Greek &amp; Hebrew word studies with pronunciation</li>
+              <li className="flex items-center gap-3"><span className="text-lg">🔗</span> Cross-references and commentary, one click away</li>
+              <li className="flex items-center gap-3"><span className="text-lg">🎙</span> Turn your notes into a podcast-ready script</li>
+              <li className="flex items-center gap-3"><span className="text-lg">🔒</span> Your studies stay private to your account, with optional 2FA</li>
+            </ul>
+            <blockquote className="mt-8 border-l-2 border-slate-700 pl-4 text-sm italic text-slate-400">
+              "Study to shew thyself approved unto God, a workman that needeth not to be ashamed, rightly
+              dividing the word of truth."
+              <footer className="mt-1 not-italic text-slate-500">— 2 Timothy 2:15</footer>
+            </blockquote>
           </div>
-          <ul className="space-y-4 text-sm text-slate-300">
-            <li className="flex items-center gap-3"><span className="text-lg">📖</span> Chunk-by-chunk OIA notes on any passage</li>
-            <li className="flex items-center gap-3"><span className="text-lg">🔤</span> Greek &amp; Hebrew word studies with pronunciation</li>
-            <li className="flex items-center gap-3"><span className="text-lg">🔗</span> Cross-references and commentary, one click away</li>
-            <li className="flex items-center gap-3"><span className="text-lg">🎙</span> Turn your notes into a podcast-ready script</li>
-            <li className="flex items-center gap-3"><span className="text-lg">🔒</span> Your studies stay private to your account, with optional 2FA</li>
-          </ul>
-          <blockquote className="border-l-2 border-slate-700 pl-4 text-sm italic text-slate-400">
-            "Study to shew thyself approved unto God, a workman that needeth not to be ashamed, rightly
-            dividing the word of truth."
-            <footer className="mt-1 not-italic text-slate-500">— 2 Timothy 2:15</footer>
-          </blockquote>
-        </div>
 
-        {/* Sign in / register form */}
-        <div className="flex items-center justify-center px-4 py-12">
+          {/* Sign in / register form */}
+          <div className="flex justify-center lg:justify-start">
           <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-white p-8 shadow-panel">
             <p className="text-sm uppercase tracking-[0.24em] text-slate-400 lg:hidden">Bible Study Project</p>
             <h1 className="mt-2 text-xl font-semibold text-slate-900">
@@ -3812,6 +3811,7 @@ const deleteProject = (id) => {
             >
               {authMode === 'login' ? "Need an account? Sign up" : 'Already have an account? Sign in'}
             </button>
+          </div>
           </div>
         </div>
       </div>
