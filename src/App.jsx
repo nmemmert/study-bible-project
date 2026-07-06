@@ -3735,55 +3735,84 @@ const deleteProject = (id) => {
     }
 
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-900 px-4">
-        <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-white p-8 shadow-panel">
-          <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Bible Study Project</p>
-          <h1 className="mt-2 text-xl font-semibold text-slate-900">
-            {authMode === 'login' ? 'Sign in' : 'Create an account'}
-          </h1>
-          <form onSubmit={submitAuth} className="mt-6 space-y-4">
-            <label className="block text-sm font-medium text-slate-700">
-              Email
-              <input
-                type="email"
-                required
-                autoComplete="email"
-                value={authForm.email}
-                onChange={(e) => setAuthForm((f) => ({ ...f, email: e.target.value }))}
-                className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-              />
-            </label>
-            <label className="block text-sm font-medium text-slate-700">
-              Password
-              <input
-                type="password"
-                required
-                minLength={8}
-                autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
-                value={authForm.password}
-                onChange={(e) => setAuthForm((f) => ({ ...f, password: e.target.value }))}
-                className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-              />
-            </label>
-            {authError && <p className="text-sm text-rose-600">{authError}</p>}
+      <div className="grid min-h-screen bg-slate-900 lg:grid-cols-2">
+        {/* Branding / feature panel — hidden on small screens to keep the form front and center there */}
+        <div className="hidden flex-col justify-between p-12 lg:flex">
+          <div>
+            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Bible Study Project</p>
+            <h1 className="mt-4 text-3xl font-semibold leading-tight text-white">
+              Deep Bible study,<br />organized chunk by chunk.
+            </h1>
+            <p className="mt-4 max-w-sm text-slate-300">
+              Split any passage into chunks and work through Observation, Interpretation, and
+              Application notes alongside Greek &amp; Hebrew word studies, cross-references, and commentary.
+            </p>
+          </div>
+          <ul className="space-y-4 text-sm text-slate-300">
+            <li className="flex items-center gap-3"><span className="text-lg">📖</span> Chunk-by-chunk OIA notes on any passage</li>
+            <li className="flex items-center gap-3"><span className="text-lg">🔤</span> Greek &amp; Hebrew word studies with pronunciation</li>
+            <li className="flex items-center gap-3"><span className="text-lg">🔗</span> Cross-references and commentary, one click away</li>
+            <li className="flex items-center gap-3"><span className="text-lg">🎙</span> Turn your notes into a podcast-ready script</li>
+            <li className="flex items-center gap-3"><span className="text-lg">🔒</span> Your studies stay private to your account, with optional 2FA</li>
+          </ul>
+          <blockquote className="border-l-2 border-slate-700 pl-4 text-sm italic text-slate-400">
+            "Study to shew thyself approved unto God, a workman that needeth not to be ashamed, rightly
+            dividing the word of truth."
+            <footer className="mt-1 not-italic text-slate-500">— 2 Timothy 2:15</footer>
+          </blockquote>
+        </div>
+
+        {/* Sign in / register form */}
+        <div className="flex items-center justify-center px-4 py-12">
+          <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-white p-8 shadow-panel">
+            <p className="text-sm uppercase tracking-[0.24em] text-slate-400 lg:hidden">Bible Study Project</p>
+            <h1 className="mt-2 text-xl font-semibold text-slate-900">
+              {authMode === 'login' ? 'Sign in' : 'Create an account'}
+            </h1>
+            <form onSubmit={submitAuth} className="mt-6 space-y-4">
+              <label className="block text-sm font-medium text-slate-700">
+                Email
+                <input
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={authForm.email}
+                  onChange={(e) => setAuthForm((f) => ({ ...f, email: e.target.value }))}
+                  className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Password
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
+                  value={authForm.password}
+                  onChange={(e) => setAuthForm((f) => ({ ...f, password: e.target.value }))}
+                  className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                />
+              </label>
+              {authError && <p className="text-sm text-rose-600">{authError}</p>}
+              <button
+                type="submit"
+                disabled={authBusy}
+                className="w-full rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {authBusy ? 'Please wait…' : authMode === 'login' ? 'Sign in' : 'Create account'}
+              </button>
+            </form>
             <button
-              type="submit"
-              disabled={authBusy}
-              className="w-full rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-300"
+              type="button"
+              onClick={() => {
+                setAuthMode((m) => (m === 'login' ? 'register' : 'login'));
+                setAuthError('');
+              }}
+              className="mt-4 w-full text-center text-sm text-slate-500 underline hover:text-slate-700"
             >
-              {authBusy ? 'Please wait…' : authMode === 'login' ? 'Sign in' : 'Create account'}
+              {authMode === 'login' ? "Need an account? Sign up" : 'Already have an account? Sign in'}
             </button>
-          </form>
-          <button
-            type="button"
-            onClick={() => {
-              setAuthMode((m) => (m === 'login' ? 'register' : 'login'));
-              setAuthError('');
-            }}
-            className="mt-4 w-full text-center text-sm text-slate-500 underline hover:text-slate-700"
-          >
-            {authMode === 'login' ? "Need an account? Sign up" : 'Already have an account? Sign in'}
-          </button>
+          </div>
         </div>
       </div>
     );
