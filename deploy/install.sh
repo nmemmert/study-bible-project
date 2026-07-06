@@ -75,8 +75,16 @@ chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR"
 
 # ── systemd unit ──────────────────────────────────────────────────────────────
 echo "Installing systemd unit..."
-sed "s#/opt/study-app#$INSTALL_DIR#g; s#User=study-app#User=$SERVICE_USER#; s#Group=study-app#Group=$SERVICE_USER#" \
-  "$ROOT_DIR/deploy/study-app.service" > "/etc/systemd/system/${SERVICE_NAME}.service"
+EXISTING_UNIT="/etc/systemd/system/${SERVICE_NAME}.service"
+# Reuse the existing session secret across re-installs (upgrades) so signed-in
+# users aren't logged out; only generate a new one on first install.
+if [ -f "$EXISTING_UNIT" ] && grep -q '^Environment=SESSION_SECRET=' "$EXISTING_UNIT"; then
+  SESSION_SECRET="$(grep '^Environment=SESSION_SECRET=' "$EXISTING_UNIT" | head -1 | cut -d= -f3-)"
+else
+  SESSION_SECRET="$(openssl rand -hex 32)"
+fi
+sed "s#/opt/study-app#$INSTALL_DIR#g; s#User=study-app#User=$SERVICE_USER#; s#Group=study-app#Group=$SERVICE_USER#; s#__SESSION_SECRET__#$SESSION_SECRET#" \
+  "$ROOT_DIR/deploy/study-app.service" > "$EXISTING_UNIT"
 
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"

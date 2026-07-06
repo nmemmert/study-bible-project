@@ -63,9 +63,18 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// App checks /api/auth/me on mount before deciding whether to show the app or
+// a login gate. In tests the mock fetch reports the server as unreachable, so
+// it falls back to local-only mode — but that still takes a tick to resolve.
+async function renderApp() {
+  render(<App />);
+  await waitFor(() => expect(screen.queryByText('Loading…')).not.toBeInTheDocument());
+}
+
 async function loadChapter() {
   const user = userEvent.setup();
-  render(<App />);
+  await renderApp();
   await user.click(screen.getAllByRole('button', { name: /new project/i })[0]);
   await user.click(screen.getByRole('button', { name: /load chapter/i }));
   await screen.findByText(/Scripture & Chunks/i);
@@ -102,24 +111,24 @@ function findChunkCounter(n, total) {
 // Initial render
 // ---------------------------------------------------------------------------
 describe('Initial render', () => {
-  test('shows the home page with "My Studies" heading', () => {
-    render(<App />);
+  test('shows the home page with "My Studies" heading', async () => {
+    await renderApp();
     expect(screen.getByText('My Studies')).toBeInTheDocument();
   });
 
-  test('shows "No projects yet" when storage is empty', () => {
-    render(<App />);
+  test('shows "No projects yet" when storage is empty', async () => {
+    await renderApp();
     expect(screen.getByText(/no projects yet/i)).toBeInTheDocument();
   });
 
-  test('shows "New Project" button on home page', () => {
-    render(<App />);
+  test('shows "New Project" button on home page', async () => {
+    await renderApp();
     expect(screen.getAllByRole('button', { name: /new project/i }).length).toBeGreaterThan(0);
   });
 
   test('clicking "New Project" shows the project setup form', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    await renderApp();
     await user.click(screen.getAllByRole('button', { name: /new project/i })[0]);
     expect(screen.getByText('Project Setup')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /load chapter/i })).toBeInTheDocument();
@@ -127,7 +136,7 @@ describe('Initial render', () => {
 
   test('setup form shows translation, book, and chapter inputs', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    await renderApp();
     await user.click(screen.getAllByRole('button', { name: /new project/i })[0]);
     expect(screen.getByText('Translation')).toBeInTheDocument();
     expect(screen.getByText('Book')).toBeInTheDocument();
@@ -162,7 +171,7 @@ describe('Loading a chapter', () => {
       return Promise.resolve({ ok: false });
     }));
     const user = userEvent.setup();
-    render(<App />);
+    await renderApp();
     await user.click(screen.getAllByRole('button', { name: /new project/i })[0]);
     await user.click(screen.getByRole('button', { name: /load chapter/i }));
     await screen.findByText(/unable to load chapter/i);
@@ -171,7 +180,7 @@ describe('Loading a chapter', () => {
   test('shows an error message when chapter data contains no verses', async () => {
     vi.stubGlobal('fetch', buildFetchMock({ chapterData: { chapter: { content: [] } } }));
     const user = userEvent.setup();
-    render(<App />);
+    await renderApp();
     await user.click(screen.getAllByRole('button', { name: /new project/i })[0]);
     await user.click(screen.getByRole('button', { name: /load chapter/i }));
     await screen.findByText(/invalid bible data/i);

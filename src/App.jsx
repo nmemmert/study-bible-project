@@ -22,6 +22,14 @@ import {
   deleteRemoteProject,
   listRemoteProjects,
   loadRemoteProject,
+  getCurrentUser,
+  registerUser,
+  loginUser,
+  logoutUser,
+  verifyMfaLogin,
+  startMfaSetup,
+  confirmMfaSetup,
+  disableMfa,
 } from './syncService.js';
 
 const COMMENTARY_OPTIONS = [
@@ -248,12 +256,60 @@ export function migrateProject(raw) {
 // Storage helpers
 // ---------------------------------------------------------------------------
 
-const INDEX_KEY = 'bible-study-index';
-const projectKey = (id) => `bible-study-project-${id}`;
+// Pre-multi-user, un-namespaced keys. Kept around only so existing local data
+// (from before accounts existed) can be claimed by the first user who signs in
+// on a given browser — see switchStorageUser() below.
+const INDEX_KEY_LEGACY = 'bible-study-index';
+const projectKeyLegacy = (id) => `bible-study-project-${id}`;
+
+// The signed-in user's id, or null when signed out / not yet resolved.
+// Sets which localStorage namespace loadProjectIndex/saveProjectToStorage/etc. read
+// and write, so two accounts sharing one browser never see each other's cached projects.
+let activeStorageUserId = null;
+
+function indexKey() {
+  return activeStorageUserId ? `bible-study-index:${activeStorageUserId}` : INDEX_KEY_LEGACY;
+}
+
+function projectKey(id) {
+  return activeStorageUserId ? `bible-study-project:${activeStorageUserId}:${id}` : projectKeyLegacy(id);
+}
+
+/**
+ * Moves any pre-multi-user local project data into this user's own namespace,
+ * then deletes the shared legacy keys so no other account can claim them afterward.
+ * No-op if this user already has their own namespaced index, or if there's nothing legacy to claim.
+ */
+function migrateLegacyLocalDataToUser(userId) {
+  if (!userId || window.localStorage.getItem(`bible-study-index:${userId}`)) return;
+  const legacyRaw = window.localStorage.getItem(INDEX_KEY_LEGACY);
+  if (!legacyRaw) return;
+  try {
+    const legacyIndex = JSON.parse(legacyRaw) ?? [];
+    legacyIndex.forEach((entry) => {
+      const raw = window.localStorage.getItem(projectKeyLegacy(entry.id));
+      if (raw != null) {
+        window.localStorage.setItem(`bible-study-project:${userId}:${entry.id}`, raw);
+        window.localStorage.removeItem(projectKeyLegacy(entry.id));
+      }
+    });
+    window.localStorage.setItem(`bible-study-index:${userId}`, legacyRaw);
+    window.localStorage.removeItem(INDEX_KEY_LEGACY);
+  } catch {
+    // Leave legacy data in place if anything goes wrong — better to re-try next login than lose it.
+  }
+}
+
+/** Switches the active local-storage namespace and returns the freshly loaded index for it. */
+function switchStorageUser(userId) {
+  activeStorageUserId = userId ?? null;
+  if (userId) migrateLegacyLocalDataToUser(userId);
+  return loadProjectIndex();
+}
 
 function loadProjectIndex() {
   try {
-    const raw = window.localStorage.getItem(INDEX_KEY);
+    const raw = window.localStorage.getItem(indexKey());
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
@@ -286,14 +342,14 @@ function saveProjectToStorage(project) {
   } else {
     index.push(summary);
   }
-  window.localStorage.setItem(INDEX_KEY, JSON.stringify(index));
+  window.localStorage.setItem(indexKey(), JSON.stringify(index));
   return updated; // caller can use this exact object for the server PUT
 }
 
 function deleteProjectFromStorage(id) {
   window.localStorage.removeItem(projectKey(id));
   const index = loadProjectIndex().filter((e) => e.id !== id);
-  window.localStorage.setItem(INDEX_KEY, JSON.stringify(index));
+  window.localStorage.setItem(indexKey(), JSON.stringify(index));
 }
 
 function loadProjectById(id) {
@@ -308,7 +364,7 @@ function loadProjectById(id) {
 function migrateOldStorageKeys() {
   const keys = Object.keys(window.localStorage);
   keys.forEach((key) => {
-    if (!key.startsWith('bible-study-') || key === INDEX_KEY || key.startsWith('bible-study-project-')) return;
+    if (!key.startsWith('bible-study-') || key.startsWith('bible-study-index') || key.startsWith('bible-study-project')) return;
     try {
       const raw = JSON.parse(window.localStorage.getItem(key));
       if (!raw || !raw.book) return;
@@ -910,8 +966,25 @@ const App = () => {
     title: 'Titus 1 Study',
   });
   const [titleEdited, setTitleEdited] = useState(false);
+  // authUser: undefined = still checking · null = signed out · object = signed in
+  const [authUser, setAuthUser] = useState(undefined);
+  const [authServerDown, setAuthServerDown] = useState(false);
+  const [authMode, setAuthMode] = useState('login'); // 'login' | 'register'
+  const [authForm, setAuthForm] = useState({ email: '', password: '' });
+  const [authError, setAuthError] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authMfaPending, setAuthMfaPending] = useState(false); // password ok, waiting on TOTP/backup code
+  const [authMfaCode, setAuthMfaCode] = useState('');
+  const [authMfaUseBackup, setAuthMfaUseBackup] = useState(false);
+  const [mfaSetup, setMfaSetup] = useState(null); // { secret, qrCodeDataUrl } while setup is in progress
+  const [mfaSetupCode, setMfaSetupCode] = useState('');
+  const [mfaSetupError, setMfaSetupError] = useState('');
+  const [mfaSetupBusy, setMfaSetupBusy] = useState(false);
+  const [mfaBackupCodes, setMfaBackupCodes] = useState(null); // shown once, right after enabling
+  const [mfaDisablePassword, setMfaDisablePassword] = useState('');
+  const [mfaDisableError, setMfaDisableError] = useState('');
   const [project, setProject] = useState(null);
-  // 'home' | 'setup' | 'study'
+  // 'home' | 'setup' | 'study' | 'settings'
   const [currentPage, setCurrentPage] = useState('home');
   const [projectIndex, setProjectIndex] = useState([]);
   const [activeChapterIndex, setActiveChapterIndex] = useState(0);
@@ -1300,21 +1373,42 @@ const App = () => {
   // ---------------------------------------------------------------------------
   useEffect(() => {
     migrateOldStorageKeys();
-    const localIndex = loadProjectIndex();
-    setProjectIndex(localIndex);
+    setProjectIndex(loadProjectIndex());
 
+    getCurrentUser().then((result) => {
+      if (result.ok) {
+        setAuthUser(result.user);
+        if (result.user) setProjectIndex(switchStorageUser(result.user.id));
+      } else {
+        // Genuine network failure (server unreachable) — fall back to local-only mode.
+        setAuthServerDown(true);
+        setAuthUser(null);
+      }
+    });
+  }, []);
+
+  // Once we know who's signed in, reconcile the local project index against the server.
+  // Runs on every authUser change (including logout -> different login) so a previous
+  // account's remote-only/stale suggestions never linger after switching users.
+  useEffect(() => {
+    if (!authUser) {
+      setRemoteOnlyProjects([]);
+      setStaleLocalProjects([]);
+      return;
+    }
+    const localIndex = loadProjectIndex();
     listRemoteProjects().then((result) => {
       if (!result.ok) return;
       const localMap = new Map(localIndex.map((e) => [e.id, e]));
       const missing = result.data.filter((e) => !localMap.has(e.id));
-      if (missing.length > 0) setRemoteOnlyProjects(missing);
+      setRemoteOnlyProjects(missing);
       const stale = result.data.filter((e) => {
         const local = localMap.get(e.id);
         return local && (e.lastEdited ?? 0) > (local.lastEdited ?? 0);
       });
-      if (stale.length > 0) setStaleLocalProjects(stale);
+      setStaleLocalProjects(stale);
     });
-  }, []);
+  }, [authUser]);
 
   useEffect(() => {
     fetch('https://bible.helloao.org/api/available_translations.json')
@@ -3026,6 +3120,31 @@ const restoreRemoteProject = async (id) => {
     setStatusMessage('');
   };
 
+  const authStatus = authUser && (
+    <div className="flex items-center gap-2 text-sm text-slate-300">
+      <span className="hidden sm:inline">{authUser.email}</span>
+      <button
+        type="button"
+        onClick={() => setCurrentPage('settings')}
+        className="rounded-xl border border-white/15 bg-white/10 px-3 py-1.5 text-xs text-white transition hover:bg-white/15"
+      >
+        ⚙ Settings
+      </button>
+      <button
+        type="button"
+        onClick={async () => {
+          await logoutUser();
+          setAuthUser(null);
+          setProjectIndex(switchStorageUser(null));
+          goHome();
+        }}
+        className="rounded-xl border border-white/15 bg-white/10 px-3 py-1.5 text-xs text-white transition hover:bg-white/15"
+      >
+        Log out
+      </button>
+    </div>
+  );
+
   // ---------------------------------------------------------------------------
   // Shared header
   // ---------------------------------------------------------------------------
@@ -3124,8 +3243,358 @@ const restoreRemoteProject = async (id) => {
             </div>
           )}
         </div>
+        {authStatus}
     </div>
   );
+
+  // ---------------------------------------------------------------------------
+  // Auth gate — shown when the server is reachable but no session is present
+  // ---------------------------------------------------------------------------
+  if (authUser === undefined && !authServerDown) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-900">
+        <p className="text-sm text-slate-400">Loading…</p>
+      </div>
+    );
+  }
+
+  if (authUser === null && !authServerDown) {
+    const submitAuth = async (e) => {
+      e.preventDefault();
+      setAuthError('');
+      setAuthBusy(true);
+      const action = authMode === 'login' ? loginUser : registerUser;
+      const result = await action(authForm.email.trim(), authForm.password);
+      setAuthBusy(false);
+      if (!result.ok) {
+        setAuthError(result.error ?? 'Something went wrong.');
+        return;
+      }
+      if (result.data?.mfaRequired) {
+        setAuthMfaPending(true);
+        return;
+      }
+      setAuthUser(result.data);
+      setProjectIndex(switchStorageUser(result.data.id));
+    };
+
+    const submitMfa = async (e) => {
+      e.preventDefault();
+      setAuthError('');
+      setAuthBusy(true);
+      const result = await verifyMfaLogin(
+        authMfaUseBackup ? { backupCode: authMfaCode.trim() } : { token: authMfaCode.trim() },
+      );
+      setAuthBusy(false);
+      if (!result.ok) {
+        setAuthError(result.error ?? 'Invalid code.');
+        return;
+      }
+      setAuthMfaPending(false);
+      setAuthMfaCode('');
+      setAuthUser(result.data);
+      setProjectIndex(switchStorageUser(result.data.id));
+    };
+
+    if (authMfaPending) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-slate-900 px-4">
+          <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-white p-8 shadow-panel">
+            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Bible Study Project</p>
+            <h1 className="mt-2 text-xl font-semibold text-slate-900">Two-factor verification</h1>
+            <p className="mt-2 text-sm text-slate-500">
+              {authMfaUseBackup
+                ? 'Enter one of your saved backup codes.'
+                : 'Enter the 6-digit code from your authenticator app.'}
+            </p>
+            <form onSubmit={submitMfa} className="mt-6 space-y-4">
+              <input
+                type="text"
+                required
+                autoFocus
+                inputMode={authMfaUseBackup ? 'text' : 'numeric'}
+                placeholder={authMfaUseBackup ? 'xxxxxxxxxx' : '123456'}
+                value={authMfaCode}
+                onChange={(e) => setAuthMfaCode(e.target.value)}
+                className="block w-full rounded-xl border border-slate-300 px-3 py-2 text-center text-lg tracking-widest shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+              />
+              {authError && <p className="text-sm text-rose-600">{authError}</p>}
+              <button
+                type="submit"
+                disabled={authBusy}
+                className="w-full rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {authBusy ? 'Verifying…' : 'Verify'}
+              </button>
+            </form>
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMfaUseBackup((v) => !v);
+                setAuthMfaCode('');
+                setAuthError('');
+              }}
+              className="mt-4 w-full text-center text-sm text-slate-500 underline hover:text-slate-700"
+            >
+              {authMfaUseBackup ? 'Use your authenticator app instead' : "Lost your device? Use a backup code"}
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                await logoutUser();
+                setAuthMfaPending(false);
+                setAuthMfaCode('');
+                setAuthError('');
+              }}
+              className="mt-2 w-full text-center text-sm text-slate-400 underline hover:text-slate-600"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-900 px-4">
+        <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-white p-8 shadow-panel">
+          <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Bible Study Project</p>
+          <h1 className="mt-2 text-xl font-semibold text-slate-900">
+            {authMode === 'login' ? 'Sign in' : 'Create an account'}
+          </h1>
+          <form onSubmit={submitAuth} className="mt-6 space-y-4">
+            <label className="block text-sm font-medium text-slate-700">
+              Email
+              <input
+                type="email"
+                required
+                autoComplete="email"
+                value={authForm.email}
+                onChange={(e) => setAuthForm((f) => ({ ...f, email: e.target.value }))}
+                className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+              />
+            </label>
+            <label className="block text-sm font-medium text-slate-700">
+              Password
+              <input
+                type="password"
+                required
+                minLength={8}
+                autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
+                value={authForm.password}
+                onChange={(e) => setAuthForm((f) => ({ ...f, password: e.target.value }))}
+                className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+              />
+            </label>
+            {authError && <p className="text-sm text-rose-600">{authError}</p>}
+            <button
+              type="submit"
+              disabled={authBusy}
+              className="w-full rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              {authBusy ? 'Please wait…' : authMode === 'login' ? 'Sign in' : 'Create account'}
+            </button>
+          </form>
+          <button
+            type="button"
+            onClick={() => {
+              setAuthMode((m) => (m === 'login' ? 'register' : 'login'));
+              setAuthError('');
+            }}
+            className="mt-4 w-full text-center text-sm text-slate-500 underline hover:text-slate-700"
+          >
+            {authMode === 'login' ? "Need an account? Sign up" : 'Already have an account? Sign in'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // SETTINGS PAGE
+  // ---------------------------------------------------------------------------
+  if (currentPage === 'settings' && authUser) {
+    const startSetup = async () => {
+      setMfaSetupError('');
+      setMfaSetupBusy(true);
+      const result = await startMfaSetup();
+      setMfaSetupBusy(false);
+      if (!result.ok) {
+        setMfaSetupError(result.error ?? 'Could not start 2FA setup.');
+        return;
+      }
+      setMfaSetup(result.data);
+      setMfaSetupCode('');
+    };
+
+    const confirmSetup = async (e) => {
+      e.preventDefault();
+      setMfaSetupError('');
+      setMfaSetupBusy(true);
+      const result = await confirmMfaSetup(mfaSetupCode.trim());
+      setMfaSetupBusy(false);
+      if (!result.ok) {
+        setMfaSetupError(result.error ?? 'Invalid code.');
+        return;
+      }
+      setMfaSetup(null);
+      setMfaSetupCode('');
+      setMfaBackupCodes(result.data.backupCodes);
+      setAuthUser((u) => ({ ...u, totpEnabled: true }));
+    };
+
+    const cancelSetup = () => {
+      setMfaSetup(null);
+      setMfaSetupCode('');
+      setMfaSetupError('');
+    };
+
+    const submitDisable = async (e) => {
+      e.preventDefault();
+      setMfaDisableError('');
+      const result = await disableMfa(mfaDisablePassword);
+      if (!result.ok) {
+        setMfaDisableError(result.error ?? 'Incorrect password.');
+        return;
+      }
+      setMfaDisablePassword('');
+      setAuthUser((u) => ({ ...u, totpEnabled: false }));
+    };
+
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-900">
+        <header className="border-b border-slate-200 bg-slate-900 text-white shadow-sm">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
+            <div>
+              <p className="text-sm uppercase tracking-[0.24em] text-slate-300">Bible Study Project</p>
+              <h1 className="mt-2 text-2xl font-semibold">Account Settings</h1>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={goHome}
+                className="rounded-xl border border-slate-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
+              >
+                ← Back
+              </button>
+              {authStatus}
+            </div>
+          </div>
+        </header>
+
+        <main className="mx-auto max-w-2xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
+          <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-panel space-y-2">
+            <h2 className="text-lg font-semibold text-slate-900">Account</h2>
+            <p className="text-sm text-slate-500">
+              Signed in as <span className="font-medium text-slate-700">{authUser.email}</span>
+            </p>
+          </section>
+
+          <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-panel space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">Two-factor authentication</h2>
+              <p className="text-sm text-slate-500">
+                {authUser.totpEnabled
+                  ? "Enabled — you'll need a code from your authenticator app to sign in."
+                  : 'Add a 6-digit code from an authenticator app (Google Authenticator, Authy, 1Password, etc.) as a second step at sign-in.'}
+              </p>
+            </div>
+
+            {mfaBackupCodes ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+                <p className="text-sm font-semibold text-amber-800">
+                  Save these backup codes now — each works once if you ever lose your device. They won't be shown again.
+                </p>
+                <div className="grid grid-cols-2 gap-2 font-mono text-sm text-slate-800">
+                  {mfaBackupCodes.map((code) => (
+                    <div key={code} className="rounded-lg border border-amber-200 bg-white px-3 py-1.5">{code}</div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMfaBackupCodes(null)}
+                  className="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-amber-400"
+                >
+                  I've saved these codes
+                </button>
+              </div>
+            ) : authUser.totpEnabled ? (
+              <form onSubmit={submitDisable} className="space-y-3">
+                <label className="block max-w-xs text-sm font-medium text-slate-700">
+                  Enter your password to disable 2FA
+                  <input
+                    type="password"
+                    required
+                    value={mfaDisablePassword}
+                    onChange={(e) => setMfaDisablePassword(e.target.value)}
+                    className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                  />
+                </label>
+                {mfaDisableError && <p className="text-sm text-rose-600">{mfaDisableError}</p>}
+                <button
+                  type="submit"
+                  className="rounded-md bg-rose-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-rose-400"
+                >
+                  Disable 2FA
+                </button>
+              </form>
+            ) : mfaSetup ? (
+              <form onSubmit={confirmSetup} className="space-y-4">
+                <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
+                  <img src={mfaSetup.qrCodeDataUrl} alt="2FA QR code" className="h-40 w-40 rounded-xl border border-slate-200" />
+                  <div className="space-y-1 text-sm text-slate-600">
+                    <p>Scan this with your authenticator app, or enter the code manually:</p>
+                    <p className="break-all rounded-lg bg-slate-100 px-2 py-1 font-mono text-xs">{mfaSetup.secret}</p>
+                  </div>
+                </div>
+                <label className="block max-w-xs text-sm font-medium text-slate-700">
+                  Enter the 6-digit code it shows
+                  <input
+                    type="text"
+                    required
+                    inputMode="numeric"
+                    placeholder="123456"
+                    value={mfaSetupCode}
+                    onChange={(e) => setMfaSetupCode(e.target.value)}
+                    className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2 text-center text-lg tracking-widest shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                  />
+                </label>
+                {mfaSetupError && <p className="text-sm text-rose-600">{mfaSetupError}</p>}
+                <div className="flex gap-3">
+                  <button
+                    type="submit"
+                    disabled={mfaSetupBusy}
+                    className="rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  >
+                    {mfaSetupBusy ? 'Verifying…' : 'Confirm & enable'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelSetup}
+                    className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={startSetup}
+                  disabled={mfaSetupBusy}
+                  className="rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {mfaSetupBusy ? 'Starting…' : 'Enable 2FA'}
+                </button>
+                {mfaSetupError && <p className="text-sm text-rose-600">{mfaSetupError}</p>}
+              </div>
+            )}
+          </section>
+        </main>
+      </div>
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // HOME PAGE
@@ -3161,6 +3630,7 @@ const restoreRemoteProject = async (id) => {
               >
                 + New Project
               </button>
+              {authStatus}
             </div>
           </div>
         </header>
@@ -3445,13 +3915,16 @@ const restoreRemoteProject = async (id) => {
               <p className="text-sm uppercase tracking-[0.24em] text-slate-300">Bible Study Project</p>
               <h1 className="mt-2 text-2xl font-semibold">Read the Bible (BSB)</h1>
             </div>
-            <button
-              type="button"
-              onClick={goHome}
-              className="rounded-xl border border-slate-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
-            >
-              ← Back to Studies
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={goHome}
+                className="rounded-xl border border-slate-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
+              >
+                ← Back to Studies
+              </button>
+              {authStatus}
+            </div>
           </div>
         </header>
         <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
@@ -3725,13 +4198,16 @@ const restoreRemoteProject = async (id) => {
               <p className="text-sm uppercase tracking-[0.24em] text-slate-300">Bible Study Project</p>
               <h1 className="mt-2 text-2xl font-semibold">Import Episode List</h1>
             </div>
-            <button
-              type="button"
-              onClick={() => setCurrentPage('home')}
-              className="rounded-xl border border-slate-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
-            >
-              ← Back
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setCurrentPage('home')}
+                className="rounded-xl border border-slate-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
+              >
+                ← Back
+              </button>
+              {authStatus}
+            </div>
           </div>
         </header>
 

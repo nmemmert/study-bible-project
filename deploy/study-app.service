@@ -10,6 +10,9 @@ Group=study-app
 WorkingDirectory=/opt/study-app
 Environment=NODE_ENV=production
 Environment=PORT=3001
+# Replaced with a generated value by install.sh — keep this secret and stable
+# across deploys, or every existing login session gets invalidated.
+Environment=SESSION_SECRET=__SESSION_SECRET__
 ExecStart=/usr/bin/node server/index.js
 Restart=on-failure
 RestartSec=5

@@ -1,95 +1,80 @@
 # Study App Improvement Suggestions
 
+_Refreshed 2026-07-06 — the previous version of this file predated ~40 commits of feature work (OT support, tagging, DOCX import/export, split-view, commentary, cross-ref suggestions, and the full Bible Reader with audio/bookmarks/interlinear/search). Items already shipped have been removed; this reflects what's actually still open._
+
 ## Features
 
 ### Study Tools
-- **Bible comparison mode** — show two translations side-by-side (API already supports it)
-- **Verse-level notes** — annotate individual verses, not just chunks
-- **Tagging / themes** — tag chunks with themes (e.g. "faith", "grace"), filter/search across projects
-- **Progress tracking** — mark chunks as "in progress" / "complete"; show progress bar on home card
-- **Study templates** — pre-fill OIA fields with guiding prompts for new users
-- **Print view** — clean print-optimized CSS layout
-- **Old Testament support** — only NT books listed; HelloAO API supports OT. Greek suggest is NT-only but the rest could support OT with Hebrew lookup
-- **Verse search** — search bar to find a verse by keyword across the loaded chapter
+- **Bible comparison mode** — show two translations side-by-side. `availableTranslations` is already fetched and a translation is already selectable per project (`App.jsx:904`), but only one renders at a time — no split/parallel view
+- **Verse-level notes** — annotations are still chunk-level only (OIA fields); no way to attach a note to a single verse within a chunk
+- **Progress tracking** — no "in progress"/"complete" marker per chunk and no progress bar on the home project card
+- **Study templates** — no guiding prompts pre-filled for new users starting their first OIA entry
+- **Word/character count** on the OIA and Final Script textareas — encourages note depth, useful for episode-length planning
 
 ### Export / Sharing
-- **PDF export** — "Export PDF" button using `jsPDF` or `window.print()`
-- **Share link** — read-only shareable URL pointing to a project ID on the server
-- **Copy individual chunk** — "copy this chunk's notes" button alongside full "Prepare for Claude"
-- **Markdown export** — useful for Obsidian and similar note-taking apps
+- **PDF export** / print stylesheet — still no `window.print()` CSS or PDF button anywhere in the app
+- **Share link** — no read-only shareable URL for a project (useful for co-teachers reviewing an episode)
+- **Markdown export** — HTML/DOCX/Claude-prompt exports exist; no plain Markdown output for Obsidian-style tools
+- **Episode length estimate** — Final Script field exists per chunk; a word-count-based "~X minutes read aloud" estimate would help podcast planning
+
+### Chunk Builder (Setup Page)
+- **Drag-to-select verses** — still click-then-shift-click; no click-and-drag range selection
+- **Auto-chunk** — no "split by paragraph/section" button; every chunk boundary is manual or typed
 
 ---
 
 ## UX / UI
 
 ### Navigation
-- **Keyboard shortcuts** — `←`/`→` to navigate chunks; `Ctrl+S` to save; `Escape` to close modals
-- **"Jump to chunk" dropdown** — for projects with many chunks, a select menu is faster than scrolling
-- **Breadcrumb in header** — show `Book Chapter:Verse range` so users always know where they are
-
-### Chunk Builder (Setup Page)
-- **Drag-to-select verses** — click-and-drag instead of click then shift-click
-- **Auto-chunk** — button to split chapter into chunks by paragraph/section breaks
-- **Visual overlap indicator** — already-chunked verses are shaded but there's no tooltip explaining why you can't select them
+- **Breadcrumb in header** — study page header only shows the project title (`App.jsx:4172`); no persistent "Genesis 1:1–5" reference next to it so users can tell at a glance where they are without checking the scripture panel
 
 ### Study Page
-- **Collapsible sections** — collapse OIA, Cross-References, and Greek Word Studies independently
-- **Word/character count** on each textarea to encourage note depth
-- **Inline verse reference popup** — hover popover on cross-references showing verse text (from HelloAO)
-- **Sticky chunk navigation** — Previous/Next chunk buttons should be sticky, not only at the bottom
+- **Word/char counters** — see above
+- **Sticky bottom nav** — top Prev/Next chunk nav shipped (commit `103e20c`); a matching sticky bottom bar for long chunks would avoid scroll-back
 
 ### Home Page
-- **Search/filter projects** — text filter on the project list
-- **Sort options** — sort by name, date, or passage
-- **Project rename** — title is only set at creation; allow renaming from home card
-- **Last opened chunk** — resume directly to the study page, not the setup page
+- Search/filter/sort/rename are all implemented — nothing open here currently
 
 ---
 
 ## Code Architecture
 
 ### State Management
-- **`App.jsx` is ~2,250 lines** — biggest maintainability issue. Split into:
-  - `pages/HomePage.jsx`
-  - `pages/SetupPage.jsx`
-  - `pages/StudyPage.jsx`
-  - `components/ChunkEditor.jsx`
-  - `components/GreekWordStudy.jsx`
-  - `components/SuggestModal.jsx`
-- **Custom hooks** — extract logic into `useProject()`, `useGreekLookup()`, `useAutosave()`
+- **`App.jsx` is now ~5,100 lines** (up from ~2,250 when this doc was last written) — still one component from line 903–5044. Splitting into `pages/HomePage.jsx`, `pages/SetupPage.jsx`, `pages/StudyPage.jsx`, `pages/BibleReaderPage.jsx`, plus extracted hooks (`useProject`, `useGreekLookup`, `useAutosave`) is more valuable now than it was before, given the size increase
+- **`commentarySource` doesn't persist** — resets to `'matthew-henry'` every session (`App.jsx:1107`), unlike `studyLayout`/`activeStudyTab` which do persist to localStorage via the same pattern
 
 ### Sync / Persistence
-- **No auth** — the server has zero authentication. Any user who can reach the server can read/overwrite/delete any project. Add at minimum an API key (env var in middleware) or user accounts
-- **Conflict resolution is basic** — only compares `lastEdited` timestamps. Add a "which version do you want to keep?" UI to prevent silent data loss
-- **Offline-first** — use a service worker / `workbox` so the app works offline and syncs when back online
+- ~~No auth on the backend~~ — fixed; email/password accounts with httpOnly cookie sessions (`server/auth.js`, `server/sessionStore.js`), projects scoped per-user in both SQLite (`server/db.js`) and localStorage (`App.jsx` `switchStorageUser`/namespaced keys), and pre-existing local projects auto-claimed by the first registered account
+- No rate-limiting on `/api/auth/*` — a determined attacker could brute-force a weak password; worth adding if this is ever reachable beyond a small trusted group
+- **Conflict resolution is still last-write-wins** — only `lastEdited` timestamps are compared; no "which version do you want to keep?" UI
+- **"Restore"/"Pull latest from server" don't open the project** (`App.jsx:2997-3017`) — they refresh the local index but leave the user on the Home page instead of jumping into the study
+- **Offline-first** — still no service worker; app requires a live connection to `bible.helloao.org` for chapter/audio/commentary loads with no cached fallback if that API is down
 
 ### Security (OWASP)
-- **XSS via `dangerouslySetInnerHTML`** — `word.definitionHtml` is rendered raw. Add DOMPurify sanitization
-- **No input validation on server** — add max-length and character validation on `id`/`title` fields (SQL injection is prevented by parameterized queries, but still)
-- **CORS** — server has no CORS headers; any origin can call the API in production
+- ~~XSS via `dangerouslySetInnerHTML`~~ — fixed; `DOMPurify.sanitize()` now wraps both render paths (`App.jsx:4784`, `App.jsx:5020`)
+- **No input validation on server** — still no max-length/character validation on `id`/`title` in `server/index.js`
+- **CORS** — still no CORS headers configured
 
 ---
 
 ## Performance
 
-- **Verse data stored in project JSON** — full verse text is saved in localStorage and SQLite for every chapter. For multi-chapter projects this grows large. Consider storing only the chapter reference and re-fetching verses on load
-- **JSON files cached in refs** — `nt-strongs-gloss.json` and `nt-strongs-concordance.json` should be served with proper `Cache-Control` headers
-- **Autosave fires on all state changes** — the `[project]` dependency is too broad; it fires even when just selecting a chunk. Debounce only on content field changes
+- **Verse data stored in project JSON** — still true; full verse text is saved per chapter in both localStorage and SQLite
+- **Reader bookmark icon is unclear** — shows a 🏷️ tag emoji before bookmarking and only switches to 🔖 after (`App.jsx:3641`), but the help text says "bookmark icon to save" — a plain outline bookmark icon would read more clearly from the start
+- **No audio playback speed control** — chapter/reader audio only has play/pause/stop (`App.jsx:1037`); a 0.75x/1x/1.5x toggle would help slow, careful study listening
+- **Hardcoded external API, no fallback** — audio and commentary both call `bible.helloao.org` directly (`App.jsx:985`, `App.jsx:1129`) with no retry UI if the free API is briefly down
 
 ---
 
 ## Testing
 
-- Add tests for:
-  - `migrateProject` with the old flat format
-  - `buildClaudePrompt` output structure
-  - `parseBibleChapter` with both API response shapes
-  - Autosave debounce behavior
+- Migration and prompt-building tests now exist (`migrateChunk`, `migrateProject`, `buildClaudePrompt`, `parseBibleChapter` are all covered in `src/utils.test.js`) — this section is essentially done
+- Still missing: autosave debounce behavior, and coverage for the newer features (DOCX episode import, cross-ref auto-suggest, commentary loading)
 
 ---
 
 ## Developer Experience
 
-- **No ESLint config** — add ESLint with `eslint-plugin-react` and `eslint-plugin-react-hooks` to catch missing `useEffect` deps
-- **No TypeScript** — JSDoc types or a TS migration would catch shape mismatches between old/new project formats at compile time
-- **No `docker-compose.yml`** — Dockerfile exists but there's no compose file for one-command local dev with server + SQLite volume
+- **No ESLint config** — still true; no `.eslintrc*` or `eslint.config.*` in the repo
+- **No TypeScript** — still true
+- **No `docker-compose.yml`** — still true; Dockerfile exists but no one-command local dev with server + SQLite volume
