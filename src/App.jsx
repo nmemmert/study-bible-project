@@ -37,6 +37,7 @@ import {
   getSharedProject,
   adminListUsers,
   adminDeleteUser,
+  adminResetPassword,
   adminListProjects,
   adminGetProject,
   adminDeleteProject,
@@ -1081,6 +1082,7 @@ const App = () => {
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminError, setAdminError] = useState('');
   const [adminViewProject, setAdminViewProject] = useState(null); // full project data being previewed
+  const [adminResetResult, setAdminResetResult] = useState(null); // { email, temporaryPassword } shown once
   const [project, setProject] = useState(null);
   // 'home' | 'setup' | 'study' | 'settings'
   const [currentPage, setCurrentPage] = useState('home');
@@ -3844,6 +3846,13 @@ const deleteProject = (id) => {
       else alert(result.error ?? 'Failed to load project.');
     };
 
+    const handleResetPasswordAdmin = async (id, email) => {
+      if (!window.confirm(`Reset the password for "${email}"? They'll be signed out everywhere and need the new temporary password to log back in.`)) return;
+      const result = await adminResetPassword(id);
+      if (result.ok) setAdminResetResult({ email, temporaryPassword: result.data.temporaryPassword });
+      else alert(result.error ?? 'Failed to reset password.');
+    };
+
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900">
         <header className="border-b border-slate-200 bg-slate-900 text-white shadow-sm">
@@ -3903,10 +3912,16 @@ const deleteProject = (id) => {
                       <td className="px-4 py-3 text-slate-500">{u.projectCount}</td>
                       <td className="px-4 py-3 text-right">
                         {u.id !== authUser.id && (
-                          <button type="button" onClick={() => handleDeleteUserAdmin(u.id, u.email)}
-                            className="rounded-lg border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50">
-                            Delete
-                          </button>
+                          <div className="flex justify-end gap-2">
+                            <button type="button" onClick={() => handleResetPasswordAdmin(u.id, u.email)}
+                              className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                              Reset Password
+                            </button>
+                            <button type="button" onClick={() => handleDeleteUserAdmin(u.id, u.email)}
+                              className="rounded-lg border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50">
+                              Delete
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -3975,6 +3990,25 @@ const deleteProject = (id) => {
                 sandbox="allow-popups"
                 className="h-[calc(100%-3rem)] w-full border-0"
               />
+            </div>
+          </div>
+        )}
+
+        {adminResetResult && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
+              <h3 className="text-sm font-semibold text-slate-900">Password reset</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Relay this to <span className="font-medium text-slate-700">{adminResetResult.email}</span> yourself
+                (text, call, in person) — it won't be shown again. They're signed out everywhere until they log in with it.
+              </p>
+              <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-center font-mono text-lg tracking-wider text-amber-800">
+                {adminResetResult.temporaryPassword}
+              </p>
+              <button type="button" onClick={() => setAdminResetResult(null)}
+                className="mt-4 w-full rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-400">
+                Done
+              </button>
             </div>
           </div>
         )}

@@ -298,6 +298,11 @@ export function adminDeleteProject(id) {
   db.prepare('DELETE FROM projects WHERE id = ?').run(id);
 }
 
+/** Overwrites a user's password hash directly — used for admin-assisted password resets. */
+export function adminSetPassword(userId, passwordHash) {
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, userId);
+}
+
 // ---------------------------------------------------------------------------
 // Session store backing (used by server/sessionStore.js)
 // ---------------------------------------------------------------------------
@@ -326,4 +331,25 @@ export function destroySession(sid) {
 
 export function pruneExpiredSessions() {
   db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());
+}
+
+/**
+ * Logs a user out everywhere by deleting every session that belongs to them.
+ * Sessions don't have an indexed user_id column (they're just an opaque JSON
+ * blob to express-session), so this scans and parses — fine at this app's scale.
+ */
+export function destroyAllSessionsForUser(userId) {
+  const rows = db.prepare('SELECT sid, sess FROM sessions').all();
+  const staleSids = rows
+    .filter((row) => {
+      try {
+        return JSON.parse(row.sess)?.userId === userId;
+      } catch {
+        return false;
+      }
+    })
+    .map((row) => row.sid);
+  if (staleSids.length === 0) return;
+  const placeholders = staleSids.map(() => '?').join(',');
+  db.prepare(`DELETE FROM sessions WHERE sid IN (${placeholders})`).run(...staleSids);
 }

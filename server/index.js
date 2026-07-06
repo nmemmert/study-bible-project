@@ -10,12 +10,13 @@ import {
   enableTotp, disableTotp, setBackupCodeHashes, setPodcastName,
   getShareToken, setShareToken, clearShareToken, getProjectByShareToken,
   adminGetAllUsers, adminDeleteUser, adminGetAllProjects, adminGetProject, adminDeleteProject,
+  adminSetPassword, destroyAllSessionsForUser,
 } from './db.js';
 import { SqliteSessionStore } from './sessionStore.js';
 import {
   isValidEmail, isValidPassword, hashPassword, verifyPassword, requireAuth, requireAdmin, isAdminEmail,
   generateTotpSecret, totpKeyUri, verifyTotpToken,
-  generateBackupCodes, hashBackupCodes, consumeBackupCode,
+  generateBackupCodes, hashBackupCodes, consumeBackupCode, generateTemporaryPassword,
 } from './auth.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -386,6 +387,21 @@ app.delete('/api/admin/users/:id', requireAuth, requireAdmin, (req, res) => {
   } catch (err) {
     console.error('DELETE /api/admin/users/:id error:', err);
     res.status(500).json({ error: 'Failed to delete user.' });
+  }
+});
+
+// POST /api/admin/users/:id/reset-password — sets a random temporary password and
+// signs the user out everywhere, since there's no self-service "forgot password" flow yet.
+app.post('/api/admin/users/:id/reset-password', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const temporaryPassword = generateTemporaryPassword();
+    const passwordHash = await hashPassword(temporaryPassword);
+    adminSetPassword(req.params.id, passwordHash);
+    destroyAllSessionsForUser(req.params.id);
+    res.json({ temporaryPassword });
+  } catch (err) {
+    console.error('POST /api/admin/users/:id/reset-password error:', err);
+    res.status(500).json({ error: 'Failed to reset password.' });
   }
 });
 

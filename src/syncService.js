@@ -171,6 +171,11 @@ export async function adminDeleteUser(id) {
   return request('DELETE', `/admin/users/${id}`);
 }
 
+/** Sets a random temporary password for a user and signs them out everywhere. Returns { temporaryPassword }. */
+export async function adminResetPassword(id) {
+  return request('POST', `/admin/users/${id}/reset-password`);
+}
+
 export async function adminListProjects() {
   return request('GET', '/admin/projects');
 }

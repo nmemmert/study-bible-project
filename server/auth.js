@@ -87,3 +87,8 @@ export async function consumeBackupCode(submitted, hashes) {
   }
   return null;
 }
+
+/** A random temporary password for admin-assisted resets — shown once, relayed to the user out-of-band. */
+export function generateTemporaryPassword() {
+  return randomBytes(6).toString('hex');
+}
