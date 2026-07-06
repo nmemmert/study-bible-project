@@ -298,8 +298,8 @@ export function adminDeleteProject(id) {
   db.prepare('DELETE FROM projects WHERE id = ?').run(id);
 }
 
-/** Overwrites a user's password hash directly — used for admin-assisted password resets. */
-export function adminSetPassword(userId, passwordHash) {
+/** Overwrites a user's password hash directly — used for both self-service and admin-assisted resets. */
+export function setUserPassword(userId, passwordHash) {
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, userId);
 }
 
@@ -337,10 +337,13 @@ export function pruneExpiredSessions() {
  * Logs a user out everywhere by deleting every session that belongs to them.
  * Sessions don't have an indexed user_id column (they're just an opaque JSON
  * blob to express-session), so this scans and parses — fine at this app's scale.
+ * Pass exceptSid to keep one session alive (e.g. the one completing a self-service
+ * password change, so the user isn't immediately logged out of their own action).
  */
-export function destroyAllSessionsForUser(userId) {
+export function destroyAllSessionsForUser(userId, exceptSid = null) {
   const rows = db.prepare('SELECT sid, sess FROM sessions').all();
   const staleSids = rows
+    .filter((row) => row.sid !== exceptSid)
     .filter((row) => {
       try {
         return JSON.parse(row.sess)?.userId === userId;

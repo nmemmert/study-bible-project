@@ -10,7 +10,7 @@ import {
   enableTotp, disableTotp, setBackupCodeHashes, setPodcastName,
   getShareToken, setShareToken, clearShareToken, getProjectByShareToken,
   adminGetAllUsers, adminDeleteUser, adminGetAllProjects, adminGetProject, adminDeleteProject,
-  adminSetPassword, destroyAllSessionsForUser,
+  setUserPassword, destroyAllSessionsForUser,
 } from './db.js';
 import { SqliteSessionStore } from './sessionStore.js';
 import {
@@ -184,6 +184,34 @@ app.patch('/api/auth/profile', requireAuth, (req, res) => {
   } catch (err) {
     console.error('PATCH /api/auth/profile error:', err);
     res.status(500).json({ error: 'Failed to save profile.' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/auth/change-password — self-service password change (Account Settings)
+// ---------------------------------------------------------------------------
+app.post('/api/auth/change-password', requireAuth, async (req, res) => {
+  try {
+    const user = getUserById(req.session.userId);
+    const currentPassword = String(req.body?.currentPassword ?? '');
+    const newPassword = String(req.body?.newPassword ?? '');
+
+    const valid = await verifyPassword(currentPassword, user.passwordHash);
+    if (!valid) {
+      return res.status(401).json({ error: 'Current password is incorrect.' });
+    }
+    if (!isValidPassword(newPassword)) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters.' });
+    }
+
+    const passwordHash = await hashPassword(newPassword);
+    setUserPassword(user.id, passwordHash);
+    // Sign out every other session (e.g. a stolen one) but keep this one logged in.
+    destroyAllSessionsForUser(user.id, req.sessionID);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('POST /api/auth/change-password error:', err);
+    res.status(500).json({ error: 'Failed to change password.' });
   }
 });
 
@@ -396,7 +424,7 @@ app.post('/api/admin/users/:id/reset-password', requireAuth, requireAdmin, async
   try {
     const temporaryPassword = generateTemporaryPassword();
     const passwordHash = await hashPassword(temporaryPassword);
-    adminSetPassword(req.params.id, passwordHash);
+    setUserPassword(req.params.id, passwordHash);
     destroyAllSessionsForUser(req.params.id);
     res.json({ temporaryPassword });
   } catch (err) {

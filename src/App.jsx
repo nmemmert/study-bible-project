@@ -31,6 +31,7 @@ import {
   confirmMfaSetup,
   disableMfa,
   updateProfile,
+  changePassword,
   getShareStatus,
   enableSharing,
   disableSharing,
@@ -1066,6 +1067,10 @@ const App = () => {
   const [podcastNameInput, setPodcastNameInput] = useState('');
   const [podcastNameSaving, setPodcastNameSaving] = useState(false);
   const [podcastNameSaved, setPodcastNameSaved] = useState(false);
+  const [changePasswordForm, setChangePasswordForm] = useState({ current: '', next: '', confirm: '' });
+  const [changePasswordBusy, setChangePasswordBusy] = useState(false);
+  const [changePasswordError, setChangePasswordError] = useState('');
+  const [changePasswordSaved, setChangePasswordSaved] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   // Read-only share links
   const [shareToken, setShareToken] = useState(null);
@@ -4067,6 +4072,25 @@ const deleteProject = (id) => {
       setAuthUser((u) => ({ ...u, totpEnabled: false }));
     };
 
+    const submitChangePassword = async (e) => {
+      e.preventDefault();
+      setChangePasswordError('');
+      if (changePasswordForm.next !== changePasswordForm.confirm) {
+        setChangePasswordError('New passwords don\'t match.');
+        return;
+      }
+      setChangePasswordBusy(true);
+      const result = await changePassword(changePasswordForm.current, changePasswordForm.next);
+      setChangePasswordBusy(false);
+      if (!result.ok) {
+        setChangePasswordError(result.error ?? 'Failed to change password.');
+        return;
+      }
+      setChangePasswordForm({ current: '', next: '', confirm: '' });
+      setChangePasswordSaved(true);
+      window.setTimeout(() => setChangePasswordSaved(false), 3000);
+    };
+
     const submitPodcastName = async (e) => {
       e.preventDefault();
       setPodcastNameSaving(true);
@@ -4106,6 +4130,59 @@ const deleteProject = (id) => {
             <p className="text-sm text-slate-500">
               Signed in as <span className="font-medium text-slate-700">{authUser.email}</span>
             </p>
+          </section>
+
+          <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-panel space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">Change password</h2>
+              <p className="text-sm text-slate-500">Changing your password signs you out of every other device — this one stays signed in.</p>
+            </div>
+            <form onSubmit={submitChangePassword} className="space-y-3">
+              <label className="block text-sm font-medium text-slate-700">
+                Current password
+                <input
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  value={changePasswordForm.current}
+                  onChange={(e) => setChangePasswordForm((f) => ({ ...f, current: e.target.value }))}
+                  className="mt-1 block w-full max-w-xs rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                New password
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  value={changePasswordForm.next}
+                  onChange={(e) => setChangePasswordForm((f) => ({ ...f, next: e.target.value }))}
+                  className="mt-1 block w-full max-w-xs rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Confirm new password
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  value={changePasswordForm.confirm}
+                  onChange={(e) => setChangePasswordForm((f) => ({ ...f, confirm: e.target.value }))}
+                  className="mt-1 block w-full max-w-xs rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                />
+              </label>
+              {changePasswordError && <p className="text-sm text-rose-600">{changePasswordError}</p>}
+              {changePasswordSaved && <p className="text-sm text-emerald-600">Password changed.</p>}
+              <button
+                type="submit"
+                disabled={changePasswordBusy}
+                className="rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {changePasswordBusy ? 'Saving…' : 'Change password'}
+              </button>
+            </form>
           </section>
 
           <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-panel space-y-4">

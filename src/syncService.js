@@ -140,6 +140,11 @@ export async function updateProfile({ podcastName }) {
   return request('PATCH', '/auth/profile', { podcastName });
 }
 
+/** Self-service password change. Requires the current password; signs out every other session. */
+export async function changePassword(currentPassword, newPassword) {
+  return request('POST', '/auth/change-password', { currentPassword, newPassword });
+}
+
 // ---------------------------------------------------------------------------
 // Two-factor auth setup (Account Settings page)
 // ---------------------------------------------------------------------------
