@@ -1065,6 +1065,7 @@ const App = () => {
   const [podcastNameInput, setPodcastNameInput] = useState('');
   const [podcastNameSaving, setPodcastNameSaving] = useState(false);
   const [podcastNameSaved, setPodcastNameSaved] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   // Read-only share links
   const [shareToken, setShareToken] = useState(null);
   const [sharePanelOpen, setSharePanelOpen] = useState(false);
@@ -3478,36 +3479,37 @@ const deleteProject = (id) => {
           >
             🗣 Pronunciation Guide
           </button>
-          <button
-            type="button"
-            onClick={exportChapter}
-            className="rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-400"
-          >
-            Export HTML
-          </button>
-          <button
-            type="button"
-            onClick={exportChapterDocx}
-            className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-400"
-          >
-            Export DOCX
-          </button>
-          <button
-            type="button"
-            onClick={exportChapterMarkdown}
-            title="Download as a .md file — handy for Obsidian, Notion, or any Markdown-based notes app"
-            className="rounded-md bg-slate-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-500"
-          >
-            Export Markdown
-          </button>
-          <button
-            type="button"
-            onClick={printChapterPdf}
-            title="Opens a print-friendly version in a new tab — choose 'Save as PDF' in the print dialog"
-            className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
-          >
-            🖨 Print / Save PDF
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setExportMenuOpen((v) => !v)}
+              className="flex items-center gap-1.5 rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-400"
+            >
+              ⬇ Export
+            </button>
+            {exportMenuOpen && (
+              <div className="absolute left-0 top-full z-20 mt-2 w-56 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1.5 text-left shadow-lg">
+                <button type="button" onClick={() => { exportChapter(); setExportMenuOpen(false); }}
+                  className="block w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
+                  Export HTML
+                </button>
+                <button type="button" onClick={() => { exportChapterDocx(); setExportMenuOpen(false); }}
+                  className="block w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
+                  Export DOCX
+                </button>
+                <button type="button" onClick={() => { exportChapterMarkdown(); setExportMenuOpen(false); }}
+                  title="Handy for Obsidian, Notion, or any Markdown-based notes app"
+                  className="block w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
+                  Export Markdown
+                </button>
+                <button type="button" onClick={() => { printChapterPdf(); setExportMenuOpen(false); }}
+                  title="Opens a print-friendly version in a new tab — choose 'Save as PDF' in the print dialog"
+                  className="block w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
+                  🖨 Print / Save PDF
+                </button>
+              </div>
+            )}
+          </div>
           <div className="relative">
             <button
               type="button"
@@ -3755,9 +3757,9 @@ const deleteProject = (id) => {
               <li className="flex items-center gap-3"><span className="text-lg">🔒</span> Your studies stay private to your account, with optional 2FA</li>
             </ul>
             <blockquote className="mt-8 border-l-2 border-slate-700 pl-4 text-sm italic text-slate-400">
-              "Study to shew thyself approved unto God, a workman that needeth not to be ashamed, rightly
-              dividing the word of truth."
-              <footer className="mt-1 not-italic text-slate-500">— 2 Timothy 2:15</footer>
+              "Make every effort to present yourself approved to God, an unashamed workman who accurately
+              handles the word of truth."
+              <footer className="mt-1 not-italic text-slate-500">— 2 Timothy 2:15 (BSB)</footer>
             </blockquote>
           </div>
 
