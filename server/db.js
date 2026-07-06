@@ -252,6 +252,53 @@ export function getProjectByShareToken(token) {
 }
 
 // ---------------------------------------------------------------------------
+// Admin — unscoped views across every user/project. Callers must gate access
+// themselves (see requireAdmin in server/auth.js); nothing here checks who's asking.
+// ---------------------------------------------------------------------------
+
+/** Every account, with a project count, for the admin users list. */
+export function adminGetAllUsers() {
+  return db.prepare(`
+    SELECT u.id, u.email, u.created_at AS createdAt, u.totp_enabled AS totpEnabled,
+           (SELECT COUNT(*) FROM projects p WHERE p.user_id = u.id) AS projectCount
+    FROM users u
+    ORDER BY u.created_at ASC
+  `).all().map((r) => ({ ...r, totpEnabled: !!r.totpEnabled }));
+}
+
+/** Deletes a user account. Their projects are left in place (orphaned, not cascade-deleted) so data isn't lost by accident. */
+export function adminDeleteUser(userId) {
+  db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+}
+
+/** Every project across every user, with the owner's email, for the admin projects list. */
+export function adminGetAllProjects() {
+  return db.prepare(`
+    SELECT p.id, p.title, p.last_edited AS lastEdited, p.chapter_summary AS chapterSummary,
+           p.share_token AS shareToken, u.email AS ownerEmail
+    FROM projects p
+    LEFT JOIN users u ON u.id = p.user_id
+    ORDER BY p.last_edited DESC
+  `).all();
+}
+
+/** Full project data by id, regardless of owner — for admin inspection. */
+export function adminGetProject(id) {
+  const row = db.prepare('SELECT data FROM projects WHERE id = ?').get(id);
+  if (!row) return null;
+  try {
+    return JSON.parse(row.data);
+  } catch {
+    return null;
+  }
+}
+
+/** Deletes any project by id, regardless of owner. */
+export function adminDeleteProject(id) {
+  db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+}
+
+// ---------------------------------------------------------------------------
 // Session store backing (used by server/sessionStore.js)
 // ---------------------------------------------------------------------------
 

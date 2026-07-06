@@ -158,3 +158,27 @@ export async function confirmMfaSetup(token) {
 export async function disableMfa(password) {
   return request('POST', '/auth/mfa/disable', { password });
 }
+
+// ---------------------------------------------------------------------------
+// Admin (restricted server-side to the designated admin account)
+// ---------------------------------------------------------------------------
+
+export async function adminListUsers() {
+  return request('GET', '/admin/users');
+}
+
+export async function adminDeleteUser(id) {
+  return request('DELETE', `/admin/users/${id}`);
+}
+
+export async function adminListProjects() {
+  return request('GET', '/admin/projects');
+}
+
+export async function adminGetProject(id) {
+  return request('GET', `/admin/projects/${id}`);
+}
+
+export async function adminDeleteProject(id) {
+  return request('DELETE', `/admin/projects/${id}`);
+}

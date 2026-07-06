@@ -1,6 +1,6 @@
 # Study App Improvement Suggestions
 
-_Refreshed 2026-07-06 (multiple passes) — items already shipped have been removed; this reflects what's actually still open. Recent additions: multi-user auth with per-account data scoping, TOTP 2FA with backup codes, podcast terminology generalized to "Session" for study-only users (with a configurable podcast/show name), auto-restore on new devices, study templates (richer OIA guiding prompts), PDF/print export, Markdown export, a passage breadcrumb, whole-Bible search, better bookmark UX (always-visible SVG icons + a jump-to panel), and read-only share links._
+_Refreshed 2026-07-06 (multiple passes) — items already shipped have been removed; this reflects what's actually still open. Recent additions: multi-user auth with per-account data scoping, TOTP 2FA with backup codes, podcast terminology generalized to "Session" for study-only users (with a configurable podcast/show name), auto-restore on new devices, study templates (richer OIA guiding prompts), PDF/print export, Markdown export, a passage breadcrumb, whole-Bible search, better bookmark UX (always-visible SVG icons + a jump-to panel), read-only share links, and an admin panel (`server/auth.js` `ADMIN_EMAIL`, hardcoded to the site owner's account) showing every user/project with view/delete controls._
 
 ## Features
 

@@ -1,8 +1,13 @@
 import bcrypt from 'bcryptjs';
 import { authenticator } from 'otplib';
 import { randomBytes } from 'crypto';
+import { getUserById } from './db.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// The single admin account for this deployment. Override via env var if you
+// redeploy this app for someone else — don't hardcode your own email into a
+// fork without changing this.
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'nmemmert@duck.com').toLowerCase();
 
 export function isValidEmail(email) {
   return typeof email === 'string' && email.length <= 254 && EMAIL_RE.test(email);
@@ -24,6 +29,19 @@ export function verifyPassword(password, hash) {
 export function requireAuth(req, res, next) {
   if (!req.session?.userId) {
     return res.status(401).json({ error: 'Not signed in.' });
+  }
+  next();
+}
+
+export function isAdminEmail(email) {
+  return typeof email === 'string' && email.toLowerCase() === ADMIN_EMAIL;
+}
+
+/** Blocks the request unless the signed-in account is the designated admin. */
+export function requireAdmin(req, res, next) {
+  const user = req.session?.userId ? getUserById(req.session.userId) : null;
+  if (!user || !isAdminEmail(user.email)) {
+    return res.status(403).json({ error: 'Admin access only.' });
   }
   next();
 }

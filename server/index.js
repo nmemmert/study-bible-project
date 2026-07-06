@@ -9,10 +9,11 @@ import {
   countUsers, createUser, getUserByEmail, getUserById, claimOrphanProjects,
   enableTotp, disableTotp, setBackupCodeHashes, setPodcastName,
   getShareToken, setShareToken, clearShareToken, getProjectByShareToken,
+  adminGetAllUsers, adminDeleteUser, adminGetAllProjects, adminGetProject, adminDeleteProject,
 } from './db.js';
 import { SqliteSessionStore } from './sessionStore.js';
 import {
-  isValidEmail, isValidPassword, hashPassword, verifyPassword, requireAuth,
+  isValidEmail, isValidPassword, hashPassword, verifyPassword, requireAuth, requireAdmin, isAdminEmail,
   generateTotpSecret, totpKeyUri, verifyTotpToken,
   generateBackupCodes, hashBackupCodes, consumeBackupCode,
 } from './auth.js';
@@ -81,7 +82,7 @@ app.post('/api/auth/register', async (req, res) => {
     req.session.regenerate((err) => {
       if (err) return res.status(500).json({ error: 'Could not create session.' });
       req.session.userId = user.id;
-      res.json({ id: user.id, email: user.email, totpEnabled: false, podcastName: null });
+      res.json({ id: user.id, email: user.email, totpEnabled: false, podcastName: null, isAdmin: isAdminEmail(user.email) });
     });
   } catch (err) {
     console.error('POST /api/auth/register error:', err);
@@ -109,7 +110,7 @@ app.post('/api/auth/login', async (req, res) => {
         return res.json({ mfaRequired: true });
       }
       req.session.userId = user.id;
-      res.json({ id: user.id, email: user.email, totpEnabled: false, podcastName: user.podcastName ?? null });
+      res.json({ id: user.id, email: user.email, totpEnabled: false, podcastName: user.podcastName ?? null, isAdmin: isAdminEmail(user.email) });
     });
   } catch (err) {
     console.error('POST /api/auth/login error:', err);
@@ -147,7 +148,7 @@ app.post('/api/auth/mfa/verify', async (req, res) => {
     req.session.regenerate((err) => {
       if (err) return res.status(500).json({ error: 'Could not create session.' });
       req.session.userId = user.id;
-      res.json({ id: user.id, email: user.email, totpEnabled: true, podcastName: user.podcastName ?? null });
+      res.json({ id: user.id, email: user.email, totpEnabled: true, podcastName: user.podcastName ?? null, isAdmin: isAdminEmail(user.email) });
     });
   } catch (err) {
     console.error('POST /api/auth/mfa/verify error:', err);
@@ -165,7 +166,10 @@ app.post('/api/auth/logout', (req, res) => {
 app.get('/api/auth/me', (req, res) => {
   const user = req.session?.userId ? getUserById(req.session.userId) : null;
   if (!user) return res.status(401).json({ error: 'Not signed in.' });
-  res.json({ id: user.id, email: user.email, totpEnabled: user.totpEnabled, podcastName: user.podcastName ?? null });
+  res.json({
+    id: user.id, email: user.email, totpEnabled: user.totpEnabled,
+    podcastName: user.podcastName ?? null, isAdmin: isAdminEmail(user.email),
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -355,6 +359,63 @@ app.get('/api/share/:token', (req, res) => {
   } catch (err) {
     console.error('GET /api/share/:token error:', err);
     res.status(500).json({ error: 'Failed to load shared project.' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Admin — restricted to the single designated admin account (see ADMIN_EMAIL
+// in server/auth.js). Full visibility/control over every user and project.
+// ---------------------------------------------------------------------------
+
+app.get('/api/admin/users', requireAuth, requireAdmin, (req, res) => {
+  try {
+    res.json(adminGetAllUsers());
+  } catch (err) {
+    console.error('GET /api/admin/users error:', err);
+    res.status(500).json({ error: 'Failed to list users.' });
+  }
+});
+
+app.delete('/api/admin/users/:id', requireAuth, requireAdmin, (req, res) => {
+  try {
+    if (req.params.id === req.session.userId) {
+      return res.status(400).json({ error: "Can't delete your own admin account." });
+    }
+    adminDeleteUser(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /api/admin/users/:id error:', err);
+    res.status(500).json({ error: 'Failed to delete user.' });
+  }
+});
+
+app.get('/api/admin/projects', requireAuth, requireAdmin, (req, res) => {
+  try {
+    res.json(adminGetAllProjects());
+  } catch (err) {
+    console.error('GET /api/admin/projects error:', err);
+    res.status(500).json({ error: 'Failed to list projects.' });
+  }
+});
+
+app.get('/api/admin/projects/:id', requireAuth, requireAdmin, (req, res) => {
+  try {
+    const project = adminGetProject(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found.' });
+    res.json(project);
+  } catch (err) {
+    console.error('GET /api/admin/projects/:id error:', err);
+    res.status(500).json({ error: 'Failed to load project.' });
+  }
+});
+
+app.delete('/api/admin/projects/:id', requireAuth, requireAdmin, (req, res) => {
+  try {
+    adminDeleteProject(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /api/admin/projects/:id error:', err);
+    res.status(500).json({ error: 'Failed to delete project.' });
   }
 });
 
