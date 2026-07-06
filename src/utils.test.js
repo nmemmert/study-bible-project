@@ -7,6 +7,7 @@ import {
   parseBibleChapter,
   wordTableHtml,
   buildExportHtml,
+  buildMarkdownExport,
   buildClaudePrompt,
   createParagraphsFromText,
   migrateChunk,
@@ -466,6 +467,46 @@ describe('buildExportHtml', () => {
     expect(html).toContain('Verse two text.');
     expect(html).not.toContain('Verse one text.');
     expect(html).not.toContain('Verse three text.');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildMarkdownExport
+// ---------------------------------------------------------------------------
+describe('buildMarkdownExport', () => {
+  test('includes the project title and translation as Markdown headers', () => {
+    const md = buildMarkdownExport(baseProject);
+    expect(md).toContain('# Titus 1 Study');
+    expect(md).toContain('*BSB*');
+  });
+
+  test('includes a chapter heading and chunk reference', () => {
+    const md = buildMarkdownExport(baseProject);
+    expect(md).toContain('## Titus 1');
+    expect(md).toContain('### Titus 1:1-2');
+  });
+
+  test('includes verse text and OIA notes', () => {
+    const md = buildMarkdownExport(baseProject);
+    expect(md).toContain('Paul, a servant of God.');
+    expect(md).toContain('Key observations.');
+    expect(md).toContain('Theological meaning.');
+    expect(md).toContain('Live it out.');
+  });
+
+  test('includes cross-references and Greek word data', () => {
+    const md = buildMarkdownExport(baseProject);
+    expect(md).toContain('John 1:1');
+    expect(md).toContain('G1401');
+    expect(md).toContain('δοῦλος');
+  });
+
+  test('shows placeholder text when observation is empty', () => {
+    const project = {
+      ...baseProject,
+      chapters: [{ ...baseProject.chapters[0], chunks: [{ ...baseChunk, observation: '', interpretation: '', application: '' }] }],
+    };
+    expect(buildMarkdownExport(project)).toContain('_No observation._');
   });
 });
 

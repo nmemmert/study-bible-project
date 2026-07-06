@@ -65,6 +65,30 @@ export async function deleteRemoteProject(id) {
   return request('DELETE', `/projects/${id}`);
 }
 
+// ---------------------------------------------------------------------------
+// Read-only share links
+// ---------------------------------------------------------------------------
+
+/** Returns { shareToken } — the project's current share token, or null if sharing is off. */
+export async function getShareStatus(id) {
+  return request('GET', `/projects/${id}/share`);
+}
+
+/** Enables sharing (or returns the existing token if already enabled). Returns { shareToken }. */
+export async function enableSharing(id) {
+  return request('POST', `/projects/${id}/share`);
+}
+
+/** Revokes a project's share link. */
+export async function disableSharing(id) {
+  return request('DELETE', `/projects/${id}/share`);
+}
+
+/** Public lookup — no session required. Returns the full project for a valid share token. */
+export async function getSharedProject(token) {
+  return request('GET', `/share/${token}`);
+}
+
 /**
  * Check whether the server is reachable.
  * Returns true / false.

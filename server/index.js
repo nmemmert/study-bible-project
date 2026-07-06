@@ -8,6 +8,7 @@ import {
   initDb, getAllProjects, getProject, upsertProject, deleteProject,
   countUsers, createUser, getUserByEmail, getUserById, claimOrphanProjects,
   enableTotp, disableTotp, setBackupCodeHashes, setPodcastName,
+  getShareToken, setShareToken, clearShareToken, getProjectByShareToken,
 } from './db.js';
 import { SqliteSessionStore } from './sessionStore.js';
 import {
@@ -301,6 +302,59 @@ app.delete('/api/projects/:id', requireAuth, (req, res) => {
   } catch (err) {
     console.error('DELETE /api/projects/:id error:', err);
     res.status(500).json({ error: 'Failed to delete project.' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Read-only share links
+// ---------------------------------------------------------------------------
+
+// GET /api/projects/:id/share — current share status for the project owner
+app.get('/api/projects/:id/share', requireAuth, (req, res) => {
+  try {
+    const project = getProject(req.params.id, req.session.userId);
+    if (!project) return res.status(404).json({ error: 'Project not found.' });
+    res.json({ shareToken: getShareToken(req.params.id, req.session.userId) });
+  } catch (err) {
+    console.error('GET /api/projects/:id/share error:', err);
+    res.status(500).json({ error: 'Failed to load share status.' });
+  }
+});
+
+// POST /api/projects/:id/share — enable sharing, returns the (new or existing) token
+app.post('/api/projects/:id/share', requireAuth, (req, res) => {
+  try {
+    const existing = getShareToken(req.params.id, req.session.userId);
+    const token = existing || randomUUID().replace(/-/g, '');
+    const ok = setShareToken(req.params.id, req.session.userId, token);
+    if (!ok) return res.status(404).json({ error: 'Project not found.' });
+    res.json({ shareToken: token });
+  } catch (err) {
+    console.error('POST /api/projects/:id/share error:', err);
+    res.status(500).json({ error: 'Failed to enable sharing.' });
+  }
+});
+
+// DELETE /api/projects/:id/share — revoke the share link
+app.delete('/api/projects/:id/share', requireAuth, (req, res) => {
+  try {
+    clearShareToken(req.params.id, req.session.userId);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /api/projects/:id/share error:', err);
+    res.status(500).json({ error: 'Failed to revoke sharing.' });
+  }
+});
+
+// GET /api/share/:token — PUBLIC, no login required: fetch a shared project read-only
+app.get('/api/share/:token', (req, res) => {
+  try {
+    const project = getProjectByShareToken(req.params.token);
+    if (!project) return res.status(404).json({ error: 'This share link is invalid or has been revoked.' });
+    res.json(project);
+  } catch (err) {
+    console.error('GET /api/share/:token error:', err);
+    res.status(500).json({ error: 'Failed to load shared project.' });
   }
 });
 

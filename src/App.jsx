@@ -31,6 +31,10 @@ import {
   confirmMfaSetup,
   disableMfa,
   updateProfile,
+  getShareStatus,
+  enableSharing,
+  disableSharing,
+  getSharedProject,
 } from './syncService.js';
 
 const COMMENTARY_OPTIONS = [
@@ -419,6 +423,11 @@ export function buildExportHtml(project) {
     .greek th { background: #f8fafc; }
     .definition { margin-top: 0.75rem; font-size: 0.95rem; line-height: 1.6; }
     .definition-block { margin-top: 1rem; padding: 1rem; border: 1px solid #e2e8f0; border-radius: 0.75rem; background: #f8fafc; }
+    @media print {
+      body { padding: 0; }
+      .chunk { break-inside: avoid; border-color: #cbd5e1; }
+      .chapter-heading { break-after: avoid; }
+    }
   `;
 
   const chapters = Array.isArray(project.chapters) ? project.chapters : [];
@@ -514,6 +523,48 @@ export function buildExportHtml(project) {
   </div>
 </body>
 </html>`;
+}
+
+export function buildMarkdownExport(project) {
+  const chapters = Array.isArray(project.chapters) ? project.chapters : [];
+
+  const chapterSections = chapters.map((ch, chapterIndex) => {
+    const chunkSections = ch.chunks.map((chunk) => {
+      const scripture = formatChunkReference(project, chapterIndex, chunk, '-');
+      const versesText = getChunkVerseEntries(project, chapterIndex, chunk)
+        .map((verse) => `> **${verse.chapter}:${verse.number}** ${verse.text}`)
+        .join('\n>\n');
+
+      const observation = (chunk.observation ?? '').trim() || '_No observation._';
+      const interpretation = (chunk.interpretation ?? '').trim() || '_No interpretation._';
+      const application = (chunk.application ?? '').trim() || '_No application._';
+      const generalNotes = (chunk.generalNotes ?? '').trim();
+
+      const crossRefsLine = (chunk.crossReferences ?? []).length > 0
+        ? `**Cross-References:** ${chunk.crossReferences.join(', ')}\n\n`
+        : '';
+
+      const greekSection = chunk.greekWords.length === 0
+        ? ''
+        : `**Greek/Hebrew Words**\n\n${chunk.greekWords.map((word) => {
+            const summary = [
+              word.strongNumber,
+              word.lexeme,
+              word.transliteration && `(${word.transliteration})`,
+              word.partOfSpeech,
+              word.shortDefinition,
+            ].filter(Boolean).join(' — ');
+            const definition = word.definitionHtml ? `\n  ${htmlToPlainText(word.definitionHtml)}` : '';
+            return `- ${summary}${definition}`;
+          }).join('\n')}\n\n`;
+
+      return `### ${scripture}\n\n${versesText}\n\n${generalNotes ? `**Background / Notes**\n\n${generalNotes}\n\n` : ''}**Observation**\n\n${observation}\n\n**Interpretation**\n\n${interpretation}\n\n**Application**\n\n${application}\n\n${crossRefsLine}${greekSection}`;
+    }).join('---\n\n');
+
+    return `## ${ch.book} ${ch.chapter}\n\n${chunkSections}`;
+  }).join('\n');
+
+  return `# ${project.title}\n\n*${project.translation}*\n\n${chapterSections}`;
 }
 
 export function wordTableHtml(rows) {
@@ -915,6 +966,25 @@ async function parseEpisodeListDocx(file) {
   return Array.from(episodes.values()).sort((a, b) => Number(a.episodeNumber) - Number(b.episodeNumber));
 }
 
+// Small, unambiguous icons for the reader's verse actions (replaces emoji, which
+// don't reliably convey "bookmark this" vs. "already bookmarked" at a glance).
+function BookmarkIcon({ filled }) {
+  return (
+    <svg viewBox="0 0 20 20" width="16" height="16" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.6">
+      <path d="M5 3.5C5 2.67 5.67 2 6.5 2h7c.83 0 1.5.67 1.5 1.5v14l-5-3.5-5 3.5v-14z" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <rect x="7" y="7" width="10" height="11" rx="1.5" />
+      <path d="M4.5 13.5h-1A1.5 1.5 0 0 1 2 12V3.5A1.5 1.5 0 0 1 3.5 2H12a1.5 1.5 0 0 1 1.5 1.5v1" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 // A cross-reference chip that fetches and shows the referenced verse text on hover
 function CrossRefChip({ label, onRemove, loadVerseText }) {
   const [hovered, setHovered] = useState(false);
@@ -990,6 +1060,14 @@ const App = () => {
   const [podcastNameInput, setPodcastNameInput] = useState('');
   const [podcastNameSaving, setPodcastNameSaving] = useState(false);
   const [podcastNameSaved, setPodcastNameSaved] = useState(false);
+  // Read-only share links
+  const [shareToken, setShareToken] = useState(null);
+  const [sharePanelOpen, setSharePanelOpen] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [sharedViewToken] = useState(() => new URLSearchParams(window.location.search).get('share'));
+  const [sharedProject, setSharedProject] = useState(null);
+  const [sharedError, setSharedError] = useState('');
   const [project, setProject] = useState(null);
   // 'home' | 'setup' | 'study' | 'settings'
   const [currentPage, setCurrentPage] = useState('home');
@@ -1043,12 +1121,17 @@ const App = () => {
   const [readerBookmarks, setReaderBookmarks] = useState(() => {
     try { return JSON.parse(localStorage.getItem('reader-bookmarks') || '{}'); } catch { return {}; }
   });
+  const [readerBookmarksPanelOpen, setReaderBookmarksPanelOpen] = useState(false);
+  const [readerJumpVerse, setReaderJumpVerse] = useState(null); // verse number to scroll to + flash after a jump
   const [readerCrossRefs, setReaderCrossRefs] = useState(null);
   const [readerCrossRefsLoading, setReaderCrossRefsLoading] = useState(false);
   const [readerShowCrossRefs, setReaderShowCrossRefs] = useState(false);
   const _readerCrossRefCacheRef = useRef({});
   const [readerSearch, setReaderSearch] = useState('');
   const [readerSearchActive, setReaderSearchActive] = useState(false);
+  const [readerSearchScope, setReaderSearchScope] = useState('chapter'); // 'chapter' | 'bible'
+  const [bibleIndexStatus, setBibleIndexStatus] = useState('idle'); // 'idle' | 'loading' | 'ready' | 'error'
+  const _bibleIndexCacheRef = useRef({}); // translation -> flat verse array
   const [audioBook, setAudioBook] = useState(bookOptions[0].abbrev);
   const [audioNarrator, setAudioNarrator] = useState('souer');
   const [audioState, setAudioState] = useState({ status: 'idle', chapter: 0, total: 0 });
@@ -1218,6 +1301,39 @@ const App = () => {
   // Bible reader (read-only browsing, separate from study projects)
   // ---------------------------------------------------------------------------
 
+  // The HelloAO API has no search endpoint, so whole-Bible search fetches the
+  // entire translation once (~7MB) and searches an in-memory flat verse index
+  // client-side. Cached per translation for the rest of the session (not persisted
+  // across reloads, to avoid eating into localStorage/IndexedDB quota for a cache
+  // that's cheap enough to rebuild once per visit).
+  const loadBibleIndex = async () => {
+    if (_bibleIndexCacheRef.current.BSB) {
+      setBibleIndexStatus('ready');
+      return;
+    }
+    setBibleIndexStatus('loading');
+    try {
+      const res = await fetch('https://bible.helloao.org/api/BSB/complete.json');
+      if (!res.ok) throw new Error('Unable to load the full Bible for search.');
+      const data = await res.json();
+      const flat = [];
+      for (const book of data.books ?? []) {
+        for (const ch of book.chapters ?? []) {
+          const verses = parseBibleChapter({ chapter: ch.chapter });
+          for (const v of verses) {
+            if (v.text) {
+              flat.push({ bookAbbrev: book.id, bookName: book.commonName || book.name, chapter: ch.chapter.number, verse: v.number, text: v.text });
+            }
+          }
+        }
+      }
+      _bibleIndexCacheRef.current.BSB = flat;
+      setBibleIndexStatus('ready');
+    } catch {
+      setBibleIndexStatus('error');
+    }
+  };
+
   const loadReaderChapter = async (bookAbbrev, chapterNumber) => {
     setReaderLoading(true);
     setReaderError('');
@@ -1244,8 +1360,41 @@ const App = () => {
     loadReaderChapter(readerBookAbbrev, readerChapter);
   }, [currentPage, readerBookAbbrev, readerChapter]);
 
+  // After navigating to a verse (from the bookmarks panel or a whole-Bible search
+  // result), scroll to it and briefly flash its background so it's easy to spot.
+  useEffect(() => {
+    if (readerJumpVerse == null || readerLoading) return;
+    const el = document.getElementById(`reader-verse-${readerJumpVerse}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const prevTransition = el.style.transition;
+    const prevBackground = el.style.backgroundColor;
+    el.style.transition = 'background-color 0.4s';
+    el.style.backgroundColor = '#fef08a';
+    const t = window.setTimeout(() => {
+      el.style.backgroundColor = prevBackground;
+      window.setTimeout(() => { el.style.transition = prevTransition; }, 400);
+    }, 1200);
+    setReaderJumpVerse(null);
+    return () => window.clearTimeout(t);
+  }, [readerVerses, readerLoading, readerJumpVerse]);
+
   const openBibleReader = () => {
     setCurrentPage('reader');
+  };
+
+  // Navigates the reader to a specific verse (bookmarks panel, search results) and
+  // scrolls/flashes it once that chapter's verses have loaded.
+  const jumpToReaderVerse = (bookAbbrev, chapter, verseNumber) => {
+    setReaderBookAbbrev(bookAbbrev);
+    setReaderChapter(chapter);
+    setReaderSelectedVerse(null);
+    setReaderInterlinear(null);
+    setReaderCrossRefs(null);
+    setReaderSearch('');
+    setReaderSearchActive(false);
+    setReaderBookmarksPanelOpen(false);
+    setReaderJumpVerse(verseNumber);
   };
 
   const readerGoToPreviousChapter = () => {
@@ -1398,6 +1547,28 @@ const App = () => {
   useEffect(() => {
     setPodcastNameInput(authUser?.podcastName ?? '');
   }, [authUser?.id]);
+
+  // A ?share=TOKEN URL loads a read-only view of someone else's project — no
+  // login required, so this runs independent of auth state entirely.
+  useEffect(() => {
+    if (!sharedViewToken) return;
+    getSharedProject(sharedViewToken).then((result) => {
+      if (result.ok) {
+        setSharedProject(result.data);
+      } else {
+        setSharedError(result.error ?? 'This share link is invalid or has been revoked.');
+      }
+    });
+  }, [sharedViewToken]);
+
+  // Loads current share status whenever the study page's project changes.
+  useEffect(() => {
+    if (!project?.id || currentPage !== 'study') return;
+    setShareToken(null);
+    getShareStatus(project.id).then((result) => {
+      if (result.ok) setShareToken(result.data.shareToken);
+    });
+  }, [project?.id, currentPage]);
 
   // Once we know who's signed in, reconcile the local project index against the server.
   // Runs on every authUser change (including logout -> different login) so a previous
@@ -2712,6 +2883,62 @@ const App = () => {
     URL.revokeObjectURL(url);
   };
 
+  const printChapterPdf = () => {
+    if (!project) return;
+    const html = buildExportHtml(project);
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Please allow pop-ups for this site to print or save as PDF.');
+      return;
+    }
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.onload = () => {
+      printWindow.focus();
+      printWindow.print();
+    };
+  };
+
+  const handleEnableSharing = async () => {
+    if (!project) return;
+    setShareBusy(true);
+    const result = await enableSharing(project.id);
+    setShareBusy(false);
+    if (result.ok) setShareToken(result.data.shareToken);
+  };
+
+  const handleDisableSharing = async () => {
+    if (!project) return;
+    if (!window.confirm('Revoke this share link? Anyone using it will lose access immediately.')) return;
+    setShareBusy(true);
+    const result = await disableSharing(project.id);
+    setShareBusy(false);
+    if (result.ok) setShareToken(null);
+  };
+
+  const handleCopyShareLink = () => {
+    if (!shareToken) return;
+    const url = `${window.location.origin}${window.location.pathname}?share=${shareToken}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setShareCopied(true);
+      window.setTimeout(() => setShareCopied(false), 2000);
+    });
+  };
+
+  const exportChapterMarkdown = () => {
+    if (!project) return;
+    const markdown = buildMarkdownExport(project);
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${project.title.replace(/\s+/g, '-')}-study.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const exportChapterDocx = async () => {
     if (!project) return;
     const children = [
@@ -3226,6 +3453,65 @@ const deleteProject = (id) => {
           >
             Export DOCX
           </button>
+          <button
+            type="button"
+            onClick={exportChapterMarkdown}
+            title="Download as a .md file — handy for Obsidian, Notion, or any Markdown-based notes app"
+            className="rounded-md bg-slate-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-500"
+          >
+            Export Markdown
+          </button>
+          <button
+            type="button"
+            onClick={printChapterPdf}
+            title="Opens a print-friendly version in a new tab — choose 'Save as PDF' in the print dialog"
+            className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+          >
+            🖨 Print / Save PDF
+          </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setSharePanelOpen((v) => !v)}
+              className={`rounded-md px-4 py-2 text-sm font-medium shadow-sm transition ${shareToken ? 'bg-teal-600 text-white hover:bg-teal-500' : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`}
+            >
+              🔗 {shareToken ? 'Shared' : 'Share'}
+            </button>
+            {sharePanelOpen && (
+              <div className="absolute right-0 top-full z-20 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-lg">
+                <h3 className="text-sm font-semibold text-slate-900">Read-only share link</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Anyone with this link can view (not edit) this study — no account needed. Good for a co-teacher
+                  or a listener who wants to follow along.
+                </p>
+                {shareToken ? (
+                  <div className="mt-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        readOnly
+                        value={`${window.location.origin}${window.location.pathname}?share=${shareToken}`}
+                        onFocus={(e) => e.target.select()}
+                        className="w-full flex-1 truncate rounded-lg border border-slate-300 bg-slate-50 px-2 py-1.5 text-xs text-slate-600"
+                      />
+                      <button type="button" onClick={handleCopyShareLink}
+                        className="shrink-0 rounded-lg bg-sky-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-400">
+                        {shareCopied ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                    <button type="button" onClick={handleDisableSharing} disabled={shareBusy}
+                      className="w-full rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50">
+                      {shareBusy ? 'Revoking…' : 'Revoke link'}
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" onClick={handleEnableSharing} disabled={shareBusy}
+                    className="mt-3 w-full rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-50">
+                    {shareBusy ? 'Enabling…' : 'Enable sharing'}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
         <div className="text-right text-sm text-slate-300 space-y-0.5">
@@ -3262,6 +3548,44 @@ const deleteProject = (id) => {
         {authStatus}
     </div>
   );
+
+  // ---------------------------------------------------------------------------
+  // Shared read-only view — a ?share=TOKEN link, no login required at all.
+  // Renders in a sandboxed iframe (scripts disabled) since the HTML embeds
+  // user-authored notes that aren't HTML-escaped.
+  // ---------------------------------------------------------------------------
+  if (sharedViewToken) {
+    if (sharedError) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-slate-900 px-4">
+          <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-white p-8 text-center shadow-panel">
+            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Bible Study Project</p>
+            <p className="mt-4 text-sm text-rose-600">{sharedError}</p>
+          </div>
+        </div>
+      );
+    }
+    if (!sharedProject) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-slate-900">
+          <p className="text-sm text-slate-400">Loading shared study…</p>
+        </div>
+      );
+    }
+    return (
+      <div className="min-h-screen bg-slate-100">
+        <div className="border-b border-slate-200 bg-slate-900 px-4 py-3 text-center text-xs text-slate-300">
+          🔗 Read-only shared view — <a href="/" className="underline hover:text-white">go to Bible Study Project</a>
+        </div>
+        <iframe
+          title="Shared study"
+          srcDoc={buildExportHtml(sharedProject)}
+          sandbox="allow-popups"
+          className="h-[calc(100vh-2.5rem)] w-full border-0"
+        />
+      </div>
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // Auth gate — shown when the server is reachable but no session is present
@@ -3951,6 +4275,18 @@ const deleteProject = (id) => {
   // ---------------------------------------------------------------------------
   if (currentPage === 'reader') {
     const readerBook = bookOptions.find((b) => b.abbrev === readerBookAbbrev);
+    const bookmarkEntries = Object.entries(readerBookmarks).map(([key, color]) => {
+      const [bAbbrev, chapterStr, verseStr] = key.split('-');
+      const bookIndex = bookOptions.findIndex((b) => b.abbrev === bAbbrev);
+      return {
+        key, color,
+        bookAbbrev: bAbbrev,
+        bookName: bookOptions[bookIndex]?.name ?? bAbbrev,
+        chapter: Number(chapterStr),
+        verse: Number(verseStr),
+        bookIndex,
+      };
+    }).sort((a, b) => a.bookIndex - b.bookIndex || a.chapter - b.chapter || a.verse - b.verse);
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900">
         <header className="border-b border-slate-200 bg-slate-900 text-white shadow-sm">
@@ -4029,15 +4365,65 @@ const deleteProject = (id) => {
               {readerCrossRefsLoading ? 'Loading refs…' : '🔗 Cross-Refs'}
             </button>
             <div className="mx-2 h-4 w-px bg-slate-200" />
-            {/* In-chapter search */}
+            {/* Bookmarks panel */}
+            <div className="relative">
+              <button type="button"
+                onClick={() => setReaderBookmarksPanelOpen((v) => !v)}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-semibold transition ${readerBookmarksPanelOpen ? 'bg-sky-100 text-sky-800' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
+                <BookmarkIcon filled={bookmarkEntries.length > 0} />
+                Bookmarks{bookmarkEntries.length > 0 ? ` (${bookmarkEntries.length})` : ''}
+              </button>
+              {readerBookmarksPanelOpen && (
+                <div className="absolute left-0 top-full z-20 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
+                  {bookmarkEntries.length === 0 ? (
+                    <p className="p-2 text-sm text-slate-500">
+                      No bookmarks yet. Tap the bookmark icon next to any verse to save it here.
+                    </p>
+                  ) : (
+                    <div className="max-h-80 space-y-1 overflow-y-auto">
+                      {bookmarkEntries.map((entry) => (
+                        <div key={entry.key} className="flex items-center gap-2 rounded-xl px-2 py-1.5 hover:bg-slate-50">
+                          <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: entry.color }} />
+                          <button type="button"
+                            onClick={() => jumpToReaderVerse(entry.bookAbbrev, entry.chapter, entry.verse)}
+                            className="flex-1 truncate text-left text-sm font-medium text-slate-700 hover:text-sky-700">
+                            {entry.bookName} {entry.chapter}:{entry.verse}
+                          </button>
+                          <button type="button"
+                            onClick={() => toggleReaderBookmark(entry.key)}
+                            title="Remove bookmark"
+                            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-rose-600">
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="mx-2 h-4 w-px bg-slate-200" />
+            {/* Search — this chapter or the whole Bible */}
             {readerSearchActive ? (
               <div className="flex items-center gap-1">
+                <div className="flex overflow-hidden rounded-lg border border-slate-300">
+                  <button type="button"
+                    onClick={() => setReaderSearchScope('chapter')}
+                    className={`px-2 py-1 text-xs font-semibold transition ${readerSearchScope === 'chapter' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                    This chapter
+                  </button>
+                  <button type="button"
+                    onClick={() => { setReaderSearchScope('bible'); if (bibleIndexStatus === 'idle') loadBibleIndex(); }}
+                    className={`px-2 py-1 text-xs font-semibold transition ${readerSearchScope === 'bible' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                    Whole Bible
+                  </button>
+                </div>
                 <input
                   autoFocus
                   type="text"
                   value={readerSearch}
                   onChange={(e) => setReaderSearch(e.target.value)}
-                  placeholder="Search this chapter…"
+                  placeholder={readerSearchScope === 'bible' ? 'Search the whole Bible…' : 'Search this chapter…'}
                   className="rounded-xl border border-slate-300 bg-slate-50 px-3 py-1 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
                 />
                 <button type="button" onClick={() => { setReaderSearch(''); setReaderSearchActive(false); }}
@@ -4050,6 +4436,50 @@ const deleteProject = (id) => {
               </button>
             )}
           </div>
+
+          {/* Whole-Bible search results */}
+          {readerSearchActive && readerSearchScope === 'bible' && (
+            <div className="mb-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-panel">
+              {bibleIndexStatus === 'loading' && (
+                <p className="text-sm text-slate-500">Loading the full Bible for search — this happens once per visit (~7MB)…</p>
+              )}
+              {bibleIndexStatus === 'error' && (
+                <p className="text-sm text-rose-600">Couldn't load the full Bible for search. <button type="button" onClick={loadBibleIndex} className="underline">Try again</button></p>
+              )}
+              {bibleIndexStatus === 'ready' && (() => {
+                const q = readerSearch.trim().toLowerCase();
+                if (!q) return <p className="text-sm text-slate-500">Type at least a word to search all 66 books.</p>;
+                const index = _bibleIndexCacheRef.current.BSB ?? [];
+                const matches = index.filter((v) => v.text.toLowerCase().includes(q));
+                if (matches.length === 0) return <p className="text-sm text-slate-500">No verses match "{readerSearch}".</p>;
+                const shown = matches.slice(0, 100);
+                return (
+                  <div className="space-y-1">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      {matches.length} match{matches.length === 1 ? '' : 'es'}{matches.length > shown.length ? ` (showing first ${shown.length})` : ''}
+                    </p>
+                    <div className="max-h-96 space-y-1 overflow-y-auto">
+                      {shown.map((v) => {
+                        const idx = v.text.toLowerCase().indexOf(q);
+                        return (
+                          <button key={`${v.bookAbbrev}-${v.chapter}-${v.verse}`} type="button"
+                            onClick={() => jumpToReaderVerse(v.bookAbbrev, v.chapter, v.verse)}
+                            className="block w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-slate-50">
+                            <span className="font-semibold text-slate-700">{v.bookName} {v.chapter}:{v.verse}</span>{' '}
+                            <span className="text-slate-600">
+                              {v.text.slice(0, idx)}
+                              <mark className="rounded bg-yellow-200 px-0.5">{v.text.slice(idx, idx + q.length)}</mark>
+                              {v.text.slice(idx + q.length)}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
           {/* Audio player */}
           <div className="mb-4 flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-panel">
@@ -4102,7 +4532,9 @@ const deleteProject = (id) => {
             {readerLoading && <p className="text-sm text-slate-500">Loading…</p>}
             {readerError && <p className="text-sm text-rose-600">{readerError}</p>}
             {!readerLoading && !readerError && (() => {
-              const searchLower = readerSearch.trim().toLowerCase();
+              // Whole-Bible matches render in their own panel above; this list stays
+              // un-filtered in that mode so jumping to a result shows full context.
+              const searchLower = readerSearchScope === 'chapter' ? readerSearch.trim().toLowerCase() : '';
               const filtered = searchLower
                 ? readerVerses.filter((v) => v.text.toLowerCase().includes(searchLower))
                 : readerVerses;
@@ -4133,7 +4565,7 @@ const deleteProject = (id) => {
                     };
 
                     return (
-                      <div key={verse.number} className="group rounded-xl transition"
+                      <div key={verse.number} id={`reader-verse-${verse.number}`} className="group rounded-xl transition"
                         style={bmColor ? { backgroundColor: bmColor + '55', borderLeft: `3px solid ${bmColor}`, paddingLeft: '0.5rem' } : {}}>
                         <div className="flex items-start gap-1">
                           {/* Verse number / interlinear toggle */}
@@ -4149,27 +4581,27 @@ const deleteProject = (id) => {
                           </button>
                           {/* Verse text */}
                           <p className="flex-1">{highlightText(verse.text)}</p>
-                          {/* Action icons — visible on hover */}
-                          <span className="ml-1 mt-0.5 flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {/* Action icons — always visible so bookmarking works on touch devices too */}
+                          <span className="ml-1 mt-0.5 flex shrink-0 items-center gap-1">
                             <button type="button"
                               onClick={() => toggleReaderBookmark(verseKey)}
-                              className="rounded p-0.5 text-base leading-none hover:bg-slate-100"
+                              className={`rounded p-1 leading-none hover:bg-slate-100 ${bmColor ? 'text-amber-600' : 'text-slate-400'}`}
                               title={bmColor ? 'Remove bookmark' : 'Bookmark this verse'}>
-                              {bmColor ? '🔖' : '🏷️'}
+                              <BookmarkIcon filled={!!bmColor} />
                             </button>
                             {bmColor && (
                               <button type="button"
                                 onClick={() => cycleBookmarkColor(verseKey)}
-                                className="rounded p-0.5 text-base leading-none hover:bg-slate-100"
+                                className="rounded p-1 text-sm leading-none hover:bg-slate-100"
                                 title="Change highlight colour">
                                 🎨
                               </button>
                             )}
                             <button type="button"
                               onClick={() => copyVerse(readerBook?.name, readerChapter, verse.number, verse.text)}
-                              className="rounded p-0.5 text-base leading-none hover:bg-slate-100"
+                              className="rounded p-1 leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                               title="Copy verse">
-                              📋
+                              <CopyIcon />
                             </button>
                           </span>
                         </div>
@@ -4701,6 +5133,11 @@ const deleteProject = (id) => {
           <div>
             <p className="text-sm uppercase tracking-[0.24em] text-slate-300">Bible Study Project</p>
             <h1 className="mt-2 text-2xl font-semibold">{project?.title ?? ''}</h1>
+            {selectedChunk && selectedChunkChapterIndex >= 0 && (
+              <p className="mt-1 text-sm text-slate-300">
+                {formatChunkReference(project, selectedChunkChapterIndex, selectedChunk, '–')}
+              </p>
+            )}
           </div>
           {headerButtons}
         </div>
@@ -4982,9 +5419,21 @@ const deleteProject = (id) => {
                     <span className="text-slate-400">{collapsedSections.oia ? '▸' : '▾'}</span>
                   </button>
                   {!collapsedSections.oia && [
-                    { field: 'observation', label: 'Observation', placeholder: 'What does the text say? List facts, details, key words…' },
-                    { field: 'interpretation', label: 'Interpretation', placeholder: 'What does it mean? Context, cross-references, theology…' },
-                    { field: 'application', label: 'Application', placeholder: 'How does it apply? Personal response, life change…' },
+                    {
+                      field: 'observation',
+                      label: 'Observation',
+                      placeholder: 'What does the text actually say?\n• Who is speaking, and to whom?\n• What key words or phrases repeat?\n• What\'s the tone, structure, or literary style?',
+                    },
+                    {
+                      field: 'interpretation',
+                      label: 'Interpretation',
+                      placeholder: 'What did this mean to its original audience?\n• What\'s the historical/cultural context?\n• How does it fit the surrounding argument?\n• What does it reveal about God\'s character?',
+                    },
+                    {
+                      field: 'application',
+                      label: 'Application',
+                      placeholder: 'How should this shape your life today?\n• What attitude or action does this call for?\n• Is there a promise to trust or a warning to heed?\n• Who could you share this with?',
+                    },
                   ].map(({ field, label, placeholder }) => (
                     <div key={field}>
                       <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">

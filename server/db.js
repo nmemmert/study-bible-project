@@ -63,6 +63,12 @@ export function initDb() {
     db.exec('ALTER TABLE users ADD COLUMN podcast_name TEXT');
   }
 
+  // Older databases predate shareable read-only links.
+  if (!projectCols.some((c) => c.name === 'share_token')) {
+    db.exec('ALTER TABLE projects ADD COLUMN share_token TEXT');
+  }
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_share_token ON projects(share_token) WHERE share_token IS NOT NULL');
+
   console.log(`SQLite database ready at ${DB_PATH}`);
 }
 
@@ -211,6 +217,38 @@ export function upsertProject(project, userId) {
  */
 export function deleteProject(id, userId) {
   db.prepare('DELETE FROM projects WHERE id = ? AND user_id = ?').run(id, userId);
+}
+
+// ---------------------------------------------------------------------------
+// Read-only share links
+// ---------------------------------------------------------------------------
+
+/** Returns the current share token for a project owned by userId, or null. */
+export function getShareToken(id, userId) {
+  const row = db.prepare('SELECT share_token AS shareToken FROM projects WHERE id = ? AND user_id = ?').get(id, userId);
+  return row?.shareToken ?? null;
+}
+
+/** Sets a project's share token (enabling its public read-only link), scoped to userId. */
+export function setShareToken(id, userId, token) {
+  const result = db.prepare('UPDATE projects SET share_token = ? WHERE id = ? AND user_id = ?').run(token, id, userId);
+  return result.changes > 0;
+}
+
+/** Revokes a project's share link, scoped to userId. */
+export function clearShareToken(id, userId) {
+  db.prepare('UPDATE projects SET share_token = NULL WHERE id = ? AND user_id = ?').run(id, userId);
+}
+
+/** Public lookup: returns the full project data for a valid share token, or null. No ownership check — this is the point. */
+export function getProjectByShareToken(token) {
+  const row = db.prepare('SELECT data FROM projects WHERE share_token = ?').get(token);
+  if (!row) return null;
+  try {
+    return JSON.parse(row.data);
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
