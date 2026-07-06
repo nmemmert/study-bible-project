@@ -7,7 +7,7 @@ import { dirname, join } from 'path';
 import {
   initDb, getAllProjects, getProject, upsertProject, deleteProject,
   countUsers, createUser, getUserByEmail, getUserById, claimOrphanProjects,
-  enableTotp, disableTotp, setBackupCodeHashes,
+  enableTotp, disableTotp, setBackupCodeHashes, setPodcastName,
 } from './db.js';
 import { SqliteSessionStore } from './sessionStore.js';
 import {
@@ -80,7 +80,7 @@ app.post('/api/auth/register', async (req, res) => {
     req.session.regenerate((err) => {
       if (err) return res.status(500).json({ error: 'Could not create session.' });
       req.session.userId = user.id;
-      res.json({ id: user.id, email: user.email, totpEnabled: false });
+      res.json({ id: user.id, email: user.email, totpEnabled: false, podcastName: null });
     });
   } catch (err) {
     console.error('POST /api/auth/register error:', err);
@@ -108,7 +108,7 @@ app.post('/api/auth/login', async (req, res) => {
         return res.json({ mfaRequired: true });
       }
       req.session.userId = user.id;
-      res.json({ id: user.id, email: user.email, totpEnabled: false });
+      res.json({ id: user.id, email: user.email, totpEnabled: false, podcastName: user.podcastName ?? null });
     });
   } catch (err) {
     console.error('POST /api/auth/login error:', err);
@@ -146,7 +146,7 @@ app.post('/api/auth/mfa/verify', async (req, res) => {
     req.session.regenerate((err) => {
       if (err) return res.status(500).json({ error: 'Could not create session.' });
       req.session.userId = user.id;
-      res.json({ id: user.id, email: user.email, totpEnabled: true });
+      res.json({ id: user.id, email: user.email, totpEnabled: true, podcastName: user.podcastName ?? null });
     });
   } catch (err) {
     console.error('POST /api/auth/mfa/verify error:', err);
@@ -164,7 +164,21 @@ app.post('/api/auth/logout', (req, res) => {
 app.get('/api/auth/me', (req, res) => {
   const user = req.session?.userId ? getUserById(req.session.userId) : null;
   if (!user) return res.status(401).json({ error: 'Not signed in.' });
-  res.json({ id: user.id, email: user.email, totpEnabled: user.totpEnabled });
+  res.json({ id: user.id, email: user.email, totpEnabled: user.totpEnabled, podcastName: user.podcastName ?? null });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/auth/profile — update account-level settings (currently just podcastName)
+// ---------------------------------------------------------------------------
+app.patch('/api/auth/profile', requireAuth, (req, res) => {
+  try {
+    const podcastName = String(req.body?.podcastName ?? '').trim().slice(0, 200);
+    setPodcastName(req.session.userId, podcastName || null);
+    res.json({ podcastName: podcastName || null });
+  } catch (err) {
+    console.error('PATCH /api/auth/profile error:', err);
+    res.status(500).json({ error: 'Failed to save profile.' });
+  }
 });
 
 // ---------------------------------------------------------------------------

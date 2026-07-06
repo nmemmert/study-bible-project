@@ -111,6 +111,11 @@ export async function verifyMfaLogin({ token, backupCode }) {
   return request('POST', '/auth/mfa/verify', { token, backupCode });
 }
 
+/** Updates account-level profile settings (currently just the podcast/show name). */
+export async function updateProfile({ podcastName }) {
+  return request('PATCH', '/auth/profile', { podcastName });
+}
+
 // ---------------------------------------------------------------------------
 // Two-factor auth setup (Account Settings page)
 // ---------------------------------------------------------------------------

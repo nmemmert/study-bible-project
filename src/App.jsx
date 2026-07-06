@@ -30,6 +30,7 @@ import {
   startMfaSetup,
   confirmMfaSetup,
   disableMfa,
+  updateProfile,
 } from './syncService.js';
 
 const COMMENTARY_OPTIONS = [
@@ -636,7 +637,7 @@ function buildChunkBodies(project) {
 
       const generalNotes = (chunk.generalNotes ?? '').trim();
       const episodeLabelLine = (chunk.episodeNumber ?? '').trim() || (chunk.episodeTitle ?? '').trim()
-        ? `Episode: ${[chunk.episodeNumber?.trim(), chunk.episodeTitle?.trim()].filter(Boolean).join(' — ')}\n`
+        ? `Session: ${[chunk.episodeNumber?.trim(), chunk.episodeTitle?.trim()].filter(Boolean).join(' — ')}\n`
         : '';
 
       const greekWords = chunk.greekWords.length === 0
@@ -721,17 +722,21 @@ export function buildPronunciationGuide(project) {
   return lines.join('\n');
 }
 
-export function buildPodcastPrompt(project) {
+export function buildPodcastPrompt(project, podcastName) {
   const chapters = Array.isArray(project.chapters) ? project.chapters : [];
   const chapterLabel = chapters.map((ch) => `${ch.book} ${ch.chapter}`).join(', ');
   const episodeLabel = 'EPISODE';
+  const showName = (podcastName ?? '').trim();
+  const showLine = showName || 'MY BIBLE STUDY PODCAST';
+  const signOffLine = showName
+    ? `Introduce yourself, then sign off with: "...and this is ${showName}."`
+    : 'Introduce yourself and the name of the show as a sign-off.';
 
-  const header = `I'm recording an episode of my Bible study podcast "Verse by Verse with Nate: A Journey Through Scripture" and need a full script written from my study notes below.
+  const header = `I'm recording an episode of my Bible study podcast${showName ? ` "${showName}"` : ''} and need a full script written from my study notes below.
 
 Please write the script in this exact structure, using the section markers and tone shown:
 
-VERSE BY VERSE WITH NATE
-A Journey Through Scripture
+${showLine.toUpperCase()}
 ${episodeLabel}
 ${chapterLabel} (${project.translation})  ·  [estimate XX–XX minutes based on content]
 
@@ -742,14 +747,14 @@ A short prayer (4-6 sentences) tying into the themes of this passage.
 — ✦ —
 
 🎙️  COLD OPEN
-[Co-host delivers the cold open solo — hands off to Nate at the end]
-A few short punchy lines previewing the passage and its hook, ending with a hand-off line introducing Nate and the show.
+[Co-host delivers the cold open solo, if there is one — hands off to the host at the end]
+A few short punchy lines previewing the passage and its hook, ending with a hand-off line introducing the host and the show.
 
 — ✦ —
 
 📖  SEGMENT [N] — [SEGMENT TITLE]
 [Brief stage direction in brackets]
-One segment per passage chunk (use the chunk reference, observation, interpretation, and application notes below as the raw material). Conversational, spoken-word style — not academic prose. Work through the text the way Nate would talk it through out loud, weaving in the OIA notes and cross-references naturally.
+One segment per passage chunk (use the chunk reference, observation, interpretation, and application notes below as the raw material). Conversational, spoken-word style — not academic prose. Work through the text the way the host would talk it through out loud, weaving in the OIA notes and cross-references naturally.
 
 — ✦ —
 
@@ -771,13 +776,12 @@ For each Greek/Hebrew word collected below, a block in this format:
 
 ✦  CLOSING
 [Grounded and direct — send them away with something to carry]
-A closing reflection that ties the segments together, a short pull-quote from the passage with its reference, then sign off with:
-"I'm Nate, and this is Verse by Verse with Nate: A Journey Through Scripture."
-"Until next time — keep studying verse by verse, and nugget by nugget."
+A closing reflection that ties the segments together, a short pull-quote from the passage with its reference, then close out. ${signOffLine}
+"Until next time — keep studying verse by verse."
 
 — End of Episode —
 
-Verse by Verse with Nate  ·  ${episodeLabel}  ·  ${chapterLabel}
+${showLine}  ·  ${episodeLabel}  ·  ${chapterLabel}
 
 ---
 
@@ -882,8 +886,8 @@ function parseEpisodePassage(raw) {
   };
 }
 
-// Extracts an "Ep. # / Title / Passage" episode list from a docx, including both
-// table rows and standalone "Ep. N — Title" paragraphs (e.g. part intros).
+// Extracts a "Session # / Title / Passage" list from a docx, including both
+// table rows and standalone "Ep. N — Title" / "Session N — Title" paragraphs (e.g. part intros).
 async function parseEpisodeListDocx(file) {
   const arrayBuffer = await file.arrayBuffer();
   const { value: html } = await mammoth.convertToHtml({ arrayBuffer });
@@ -900,7 +904,7 @@ async function parseEpisodeListDocx(file) {
   });
 
   parsedDoc.querySelectorAll('p').forEach((p) => {
-    const match = p.textContent.trim().match(/^Ep\.\s*(\d+)\s*[-–—]\s*(.+)$/);
+    const match = p.textContent.trim().match(/^(?:Ep\.|Episode|Session)\s*(\d+)\s*[-–—]\s*(.+)$/i);
     if (!match) return;
     const [, epRaw, title] = match;
     if (!episodes.has(epRaw)) {
@@ -983,6 +987,9 @@ const App = () => {
   const [mfaBackupCodes, setMfaBackupCodes] = useState(null); // shown once, right after enabling
   const [mfaDisablePassword, setMfaDisablePassword] = useState('');
   const [mfaDisableError, setMfaDisableError] = useState('');
+  const [podcastNameInput, setPodcastNameInput] = useState('');
+  const [podcastNameSaving, setPodcastNameSaving] = useState(false);
+  const [podcastNameSaved, setPodcastNameSaved] = useState(false);
   const [project, setProject] = useState(null);
   // 'home' | 'setup' | 'study' | 'settings'
   const [currentPage, setCurrentPage] = useState('home');
@@ -1386,6 +1393,11 @@ const App = () => {
       }
     });
   }, []);
+
+  // Keep the Settings page's podcast-name field in sync with whichever account is signed in.
+  useEffect(() => {
+    setPodcastNameInput(authUser?.podcastName ?? '');
+  }, [authUser?.id]);
 
   // Once we know who's signed in, reconcile the local project index against the server.
   // Runs on every authUser change (including logout -> different login) so a previous
@@ -2731,7 +2743,7 @@ const App = () => {
         const headingRuns = [new TextRun({ text: scriptureHeading, bold: true, size: 28, color: DOCX_ACCENT, font: DOCX_HEADING_FONT })];
         if (chunk.episodeNumber || chunk.episodeTitle) {
           headingRuns.push(new TextRun({
-            text: `   (Ep. ${chunk.episodeNumber || '—'}${chunk.episodeTitle ? `: ${chunk.episodeTitle}` : ''})`,
+            text: `   (Session ${chunk.episodeNumber || '—'}${chunk.episodeTitle ? `: ${chunk.episodeTitle}` : ''})`,
             italics: true,
             size: 22,
             color: '7A7060',
@@ -2894,7 +2906,7 @@ const App = () => {
 
   const copyForPodcast = () => {
     if (!project) return;
-    const prompt = buildPodcastPrompt(project);
+    const prompt = buildPodcastPrompt(project, authUser?.podcastName);
     navigator.clipboard.writeText(prompt).then(() => {
       setSaveStatus('Copied podcast prep!');
       window.setTimeout(() => setSaveStatus(''), 2000);
@@ -2946,7 +2958,7 @@ const App = () => {
     try {
       const episodes = await parseEpisodeListDocx(file);
       if (episodes.length === 0) {
-        throw new Error('No "Ep. / Title / Passage" table found in that document.');
+        throw new Error('No "Session # / Title / Passage" table found in that document.');
       }
       const specs = episodes.map((ep) => ({ ...ep, parsed: parseEpisodePassage(ep.passage) }));
       setImportPreview(specs);
@@ -3057,7 +3069,7 @@ const App = () => {
 
       const newProject = {
         id: makeId(),
-        title: importTitle.trim() || `${selectedBook.name} Episodes`,
+        title: importTitle.trim() || `${selectedBook.name} Sessions`,
         translation: importTranslation,
         lastEdited: Date.now(),
         selectedChunkId: null,
@@ -3186,7 +3198,7 @@ const deleteProject = (id) => {
             type="button"
             onClick={copyForPodcast}
             disabled={allChunks.length === 0}
-            title="Copy a prompt for Claude to write a full episode script in the Verse by Verse with Nate format, ready to record"
+            title="Copy a prompt for Claude to write a full spoken-word episode script from your notes, ready to record. Optional — only useful if you're producing a podcast or similar audio series. Set your show name in Account Settings first."
             className="rounded-md bg-fuchsia-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-fuchsia-400 disabled:cursor-not-allowed disabled:bg-slate-500"
           >
             🎙 Prepare for Podcast
@@ -3465,6 +3477,18 @@ const deleteProject = (id) => {
       setAuthUser((u) => ({ ...u, totpEnabled: false }));
     };
 
+    const submitPodcastName = async (e) => {
+      e.preventDefault();
+      setPodcastNameSaving(true);
+      setPodcastNameSaved(false);
+      const result = await updateProfile({ podcastName: podcastNameInput.trim() });
+      setPodcastNameSaving(false);
+      if (!result.ok) return;
+      setAuthUser((u) => ({ ...u, podcastName: result.data.podcastName }));
+      setPodcastNameSaved(true);
+      window.setTimeout(() => setPodcastNameSaved(false), 2500);
+    };
+
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900">
         <header className="border-b border-slate-200 bg-slate-900 text-white shadow-sm">
@@ -3492,6 +3516,34 @@ const deleteProject = (id) => {
             <p className="text-sm text-slate-500">
               Signed in as <span className="font-medium text-slate-700">{authUser.email}</span>
             </p>
+          </section>
+
+          <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-panel space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">Podcast / show name</h2>
+              <p className="text-sm text-slate-500">
+                Only needed if you use "🎙 Prepare for Podcast" on the study page — it fills in your show's
+                name when asking Claude to write an episode script. Leave blank if you're just doing personal
+                study; that button still works, it just won't name a specific show.
+              </p>
+            </div>
+            <form onSubmit={submitPodcastName} className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <input
+                type="text"
+                value={podcastNameInput}
+                onChange={(e) => setPodcastNameInput(e.target.value)}
+                placeholder="e.g. Verse by Verse with Nate: A Journey Through Scripture"
+                className="w-full flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+              />
+              <button
+                type="submit"
+                disabled={podcastNameSaving}
+                className="rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {podcastNameSaving ? 'Saving…' : 'Save'}
+              </button>
+            </form>
+            {podcastNameSaved && <p className="text-sm text-emerald-600">Saved.</p>}
           </section>
 
           <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-panel space-y-4">
@@ -3625,7 +3677,7 @@ const deleteProject = (id) => {
                 onClick={openImportProject}
                 className="rounded-xl border border-slate-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
               >
-                📥 Import Episodes
+                📥 Import Session List
               </button>
               <button
                 type="button"
@@ -4188,7 +4240,7 @@ const deleteProject = (id) => {
           <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-5 sm:px-6 lg:px-8">
             <div>
               <p className="text-sm uppercase tracking-[0.24em] text-slate-300">Bible Study Project</p>
-              <h1 className="mt-2 text-2xl font-semibold">Import Episode List</h1>
+              <h1 className="mt-2 text-2xl font-semibold">Import Session List</h1>
             </div>
             <div className="flex items-center gap-3">
               <button
@@ -4205,10 +4257,20 @@ const deleteProject = (id) => {
 
         <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
           <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-panel space-y-5">
-            <p className="text-sm text-slate-500">
-              Upload a .docx with an episode table (Ep. # / Title / Passage, e.g. "1:1–2") and it'll
-              create a new project with chapters and chunks already labeled from it.
-            </p>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 space-y-2">
+              <p className="font-semibold text-slate-700">How this works</p>
+              <p>
+                This is a shortcut for setting up a multi-part study — a teaching series, sermon series, class
+                curriculum, or podcast — all at once, instead of building each chapter and chunk by hand.
+              </p>
+              <p>
+                Upload a .docx containing a table with three columns: session number, title, and passage
+                (e.g. <span className="font-mono text-xs">1:1–2</span>). Each row becomes one chunk, grouped
+                automatically by chapter. If you don't have a document like this, just use{' '}
+                <span className="font-semibold">+ New Project</span> on the home page instead — this import
+                step is entirely optional.
+              </p>
+            </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block text-sm font-medium text-slate-700">
@@ -4243,13 +4305,13 @@ const deleteProject = (id) => {
                 type="text"
                 value={importTitle}
                 onChange={(e) => setImportTitle(e.target.value)}
-                placeholder={`${bookOptions.find((b) => b.abbrev === importBookAbbrev)?.name ?? ''} Episodes`}
+                placeholder={`${bookOptions.find((b) => b.abbrev === importBookAbbrev)?.name ?? ''} Sessions`}
                 className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
               />
             </label>
 
             <label className="block text-sm font-medium text-slate-700">
-              Episode list (.docx)
+              Session list (.docx)
               <input
                 type="file"
                 accept=".docx"
@@ -4264,7 +4326,7 @@ const deleteProject = (id) => {
             {importPreview && !importBusy && (
               <div className="space-y-3">
                 <p className="text-sm font-semibold text-slate-700">
-                  {importPreview.length} episode{importPreview.length === 1 ? '' : 's'} found
+                  {importPreview.length} session{importPreview.length === 1 ? '' : 's'} found
                   {' · '}
                   {importPreview.filter((s) => s.parsed && s.parsed !== 'invalid').length} with passages
                 </p>
@@ -4273,7 +4335,7 @@ const deleteProject = (id) => {
                     <tbody>
                       {importPreview.map((spec) => (
                         <tr key={spec.episodeNumber} className="border-b border-slate-100 last:border-0">
-                          <td className="px-3 py-1.5 text-slate-500">Ep. {spec.episodeNumber}</td>
+                          <td className="px-3 py-1.5 text-slate-500">#{spec.episodeNumber}</td>
                           <td className="px-3 py-1.5 text-slate-900">{spec.title}</td>
                           <td className="px-3 py-1.5 text-right text-slate-500">
                             {spec.parsed === 'invalid'
@@ -4857,23 +4919,26 @@ const deleteProject = (id) => {
                   </div>
                 )}
 
-                {/* Episode metadata for podcast prep — unique per chunk */}
+                {/* Session metadata — optional, used to label this chunk within a series */}
                 <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${studyLayout === 'split' && activeStudyTab !== 'notes' ? 'hidden' : ''}`}>
-                  <h3 className="text-sm font-semibold text-slate-900">Episode Info</h3>
-                  <p className="text-xs text-slate-500">Used to label the script when preparing podcast content for this chunk.</p>
+                  <h3 className="text-sm font-semibold text-slate-900">Session Info</h3>
+                  <p className="text-xs text-slate-500">
+                    Optional — only fill this in if this chunk is part of a numbered series (a podcast episode,
+                    sermon, or class session). Used to label it in exports and in "Prepare for Podcast."
+                  </p>
                   <div className="mt-3 flex flex-col gap-3 sm:flex-row">
                     <input
                       type="text"
                       value={selectedChunk?.episodeNumber ?? ''}
                       onChange={(e) => updateChunk(selectedChunk.id, { episodeNumber: e.target.value })}
-                      placeholder="Episode #"
+                      placeholder="Session #"
                       className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 sm:w-32"
                     />
                     <input
                       type="text"
                       value={selectedChunk?.episodeTitle ?? ''}
                       onChange={(e) => updateChunk(selectedChunk.id, { episodeTitle: e.target.value })}
-                      placeholder="Episode title"
+                      placeholder="Session title"
                       className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
                     />
                   </div>
@@ -5357,8 +5422,8 @@ const deleteProject = (id) => {
                     className="flex w-full items-center justify-between gap-2 text-left"
                   >
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-900">Final Script</h3>
-                      <p className="text-xs text-slate-500">Paste the finished script for this chunk once Claude has helped you write it — keeps the project as a complete archive.</p>
+                      <h3 className="text-sm font-semibold text-slate-900">Final Script <span className="font-normal text-slate-400">(optional)</span></h3>
+                      <p className="text-xs text-slate-500">Paste the finished script for this chunk once Claude has helped you write it — keeps the project as a complete archive. Useful for a podcast, sermon, or any spoken teaching, not required for personal study.</p>
                     </div>
                     <span className="text-slate-400">{collapsedSections.finalScript ? '▸' : '▾'}</span>
                   </button>
@@ -5384,7 +5449,7 @@ const deleteProject = (id) => {
                       value={selectedChunk?.finalScript ?? ''}
                       onChange={(e) => updateChunk(selectedChunk.id, { finalScript: e.target.value })}
                       rows={8}
-                      placeholder="Paste the final recorded/recordable episode script here…"
+                      placeholder="Paste the final recorded/recordable script here…"
                       className="mt-4 w-full resize-y rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm leading-6 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
                     />
                     </>

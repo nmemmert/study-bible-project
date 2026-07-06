@@ -58,6 +58,11 @@ export function initDb() {
     `);
   }
 
+  // Older databases predate the podcast-name profile setting.
+  if (!userCols.some((c) => c.name === 'podcast_name')) {
+    db.exec('ALTER TABLE users ADD COLUMN podcast_name TEXT');
+  }
+
   console.log(`SQLite database ready at ${DB_PATH}`);
 }
 
@@ -98,7 +103,8 @@ function parseUserRow(row) {
 
 const USER_SELECT = `
   SELECT id, email, password_hash AS passwordHash, created_at AS createdAt,
-         totp_secret AS totpSecret, totp_enabled AS totpEnabled, backup_codes AS backupCodesRaw
+         totp_secret AS totpSecret, totp_enabled AS totpEnabled, backup_codes AS backupCodesRaw,
+         podcast_name AS podcastName
   FROM users
 `;
 
@@ -122,6 +128,11 @@ export function disableTotp(userId) {
   db.prepare(`
     UPDATE users SET totp_secret = NULL, totp_enabled = 0, backup_codes = NULL WHERE id = ?
   `).run(userId);
+}
+
+/** Sets or clears the show name used in the "Prepare for Podcast" prompt. */
+export function setPodcastName(userId, podcastName) {
+  db.prepare('UPDATE users SET podcast_name = ? WHERE id = ?').run(podcastName || null, userId);
 }
 
 /** Rewrites the remaining backup-code hashes after one is used (single-use codes). */
