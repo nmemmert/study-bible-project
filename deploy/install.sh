@@ -59,7 +59,7 @@ cd "$INSTALL_DIR"
 
 # ── Install dependencies & build ─────────────────────────────────────────────
 echo "Installing dependencies (this can take a while for better-sqlite3)..."
-npm ci || npm install
+npm install
 
 echo "Building production frontend..."
 npx vite build
