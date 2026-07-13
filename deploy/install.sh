@@ -19,18 +19,16 @@ SERVICE_NAME="study-app"
 
 echo "=== Installing Bible Study App to $INSTALL_DIR ==="
 
-# ── Node check ────────────────────────────────────────────────────────────────
-if ! command -v node >/dev/null 2>&1; then
-  echo "ERROR: Node.js is not installed."
-  echo "On Ubuntu, install via NodeSource, e.g.:"
-  echo "  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
-  echo "  sudo apt-get install -y nodejs"
-  exit 1
+# ── Node check / auto-upgrade ─────────────────────────────────────────────────
+NODE_VERSION=0
+if command -v node >/dev/null 2>&1; then
+  NODE_VERSION=$(node -v | sed 's/v//' | cut -d. -f1)
 fi
-NODE_VERSION=$(node -v | sed 's/v//' | cut -d. -f1)
 if [ "$NODE_VERSION" -lt 18 ]; then
-  echo "ERROR: Node.js v18+ required (found $(node -v))."
-  exit 1
+  echo "Node.js v18+ required (found v${NODE_VERSION}). Installing Node.js 20 via NodeSource..."
+  apt-get install -y curl ca-certificates
+  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  apt-get install -y nodejs
 fi
 echo "Node.js $(node -v) found."
 
@@ -96,4 +94,4 @@ echo "Logs:           journalctl -u $SERVICE_NAME -f"
 echo "App listens on: http://0.0.0.0:\${PORT:-3001}"
 echo ""
 echo "If you have a firewall enabled, allow the port, e.g.:"
-echo "  sudo firewall-cmd --add-port=3001/tcp --permanent && sudo firewall-cmd --reload"
+echo "  sudo ufw allow 3001/tcp && sudo ufw reload"
