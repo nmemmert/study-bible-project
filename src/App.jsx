@@ -1277,6 +1277,7 @@ const App = () => {
   const [activeStudyTab, setActiveStudyTab] = useState(
     () => localStorage.getItem('activeStudyTab') || 'notes',
   );
+  const [mobileStudyTab, setMobileStudyTab] = useState('scripture');
 
   useEffect(() => {
     localStorage.setItem('studyLayout', studyLayout);
@@ -5494,7 +5495,7 @@ const deleteProject = (id) => {
       <main className="mx-auto max-w-7xl px-4 py-4 sm:py-8 sm:px-6 lg:px-8">
         <section className={`grid min-w-0 gap-6 ${studyLayout === 'split' ? '' : 'lg:grid-cols-[260px_1fr]'}`}>
           {/* Sidebar */}
-          <aside className={`min-w-0 rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-panel ${studyLayout === 'split' ? 'hidden' : ''}`}>
+          <aside className={`min-w-0 rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-panel max-sm:hidden ${studyLayout === 'split' ? 'hidden' : ''}`}>
             <div className="mb-4">
               <p className="text-sm font-medium text-slate-500">Chunk Navigation</p>
               <h2 className="mt-2 text-xl font-semibold text-slate-900">{allChunks.length} chunks</h2>
@@ -5611,7 +5612,7 @@ const deleteProject = (id) => {
                 <button
                   type="button"
                   onClick={() => setStudyLayout((m) => (m === 'split' ? 'stacked' : 'split'))}
-                  className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+                  className="max-sm:hidden rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
                   title="Toggle two-pane study layout"
                 >
                   {studyLayout === 'split' ? '☰ Stacked View' : '◫ Split View'}
@@ -5619,11 +5620,36 @@ const deleteProject = (id) => {
               </div>
             </div>
 
+            {/* Mobile tab bar — shown only below sm, replaces the stacked-scroll layout */}
+            <div className="sm:hidden -mx-4 mt-4 flex overflow-x-auto border-b border-slate-200">
+              {[
+                { id: 'scripture', label: 'Scripture' },
+                { id: 'notes', label: 'Notes' },
+                { id: 'crossRefs', label: 'Refs' },
+                { id: 'wordStudy', label: 'Words' },
+                { id: 'commentary', label: 'Commentary' },
+                { id: 'script', label: 'Script' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setMobileStudyTab(tab.id)}
+                  className={`shrink-0 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
+                    mobileStudyTab === tab.id
+                      ? 'border-slate-900 text-slate-900'
+                      : 'border-transparent text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
             {selectedChunk ? (
               <div className="mt-6 space-y-6">
               <div className={`space-y-6 ${studyLayout === 'split' ? 'lg:flex lg:items-start lg:gap-6 lg:space-y-0' : ''}`}>
                 {/* Scripture */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${studyLayout === 'split' ? 'lg:sticky lg:top-6 lg:flex-1 lg:basis-0 lg:min-w-0 lg:self-start' : ''}`}>
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'scripture' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' ? 'lg:sticky lg:top-6 lg:flex-1 lg:basis-0 lg:min-w-0 lg:self-start' : ''}`}>
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-slate-700">Scripture</p>
@@ -5705,7 +5731,7 @@ const deleteProject = (id) => {
                 )}
 
                 {/* Session metadata — optional, used to label this chunk within a series */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${studyLayout === 'split' && activeStudyTab !== 'notes' ? 'hidden' : ''}`}>
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'notes' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' && activeStudyTab !== 'notes' ? 'hidden' : ''}`}>
                   <h3 className="text-sm font-semibold text-slate-900">Session Info</h3>
                   <p className="text-xs text-slate-500">
                     Optional — only fill this in if this chunk is part of a numbered series (a podcast episode,
@@ -5730,7 +5756,7 @@ const deleteProject = (id) => {
                 </div>
 
                 {/* Background / general notes — unique per chunk */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${studyLayout === 'split' && activeStudyTab !== 'notes' ? 'hidden' : ''}`}>
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'notes' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' && activeStudyTab !== 'notes' ? 'hidden' : ''}`}>
                   <button
                     type="button"
                     onClick={() => setCollapsedSections((c) => ({ ...c, generalNotes: !c.generalNotes }))}
@@ -5754,7 +5780,7 @@ const deleteProject = (id) => {
                 </div>
 
                 {/* OIA Notes */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 space-y-4 ${studyLayout === 'split' && activeStudyTab !== 'notes' ? 'hidden' : ''}`}>
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 space-y-4 ${mobileStudyTab !== 'notes' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' && activeStudyTab !== 'notes' ? 'hidden' : ''}`}>
                   <button
                     type="button"
                     onClick={() => setCollapsedSections((c) => ({ ...c, oia: !c.oia }))}
@@ -5799,7 +5825,7 @@ const deleteProject = (id) => {
                 </div>
 
                 {/* Tags */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${studyLayout === 'split' && activeStudyTab !== 'notes' ? 'hidden' : ''}`}>
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'notes' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' && activeStudyTab !== 'notes' ? 'hidden' : ''}`}>
                   <h3 className="text-sm font-semibold text-slate-900">Tags</h3>
                   <p className="mb-3 text-xs text-slate-500">Label this chunk by topic so you can search across studies later.</p>
                   <div className="flex flex-wrap items-center gap-2">
@@ -5871,7 +5897,7 @@ const deleteProject = (id) => {
                 </div>
 
                 {/* Cross-references */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${studyLayout === 'split' && activeStudyTab !== 'crossRefs' ? 'hidden' : ''}`}>
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'crossRefs' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' && activeStudyTab !== 'crossRefs' ? 'hidden' : ''}`}>
                   <button
                     type="button"
                     onClick={() => setCollapsedSections((c) => ({ ...c, crossRefs: !c.crossRefs }))}
@@ -5936,7 +5962,7 @@ const deleteProject = (id) => {
                 </div>
 
                 {/* Greek words */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${studyLayout === 'split' && activeStudyTab !== 'wordStudy' ? 'hidden' : ''}`}>
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'wordStudy' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' && activeStudyTab !== 'wordStudy' ? 'hidden' : ''}`}>
                   <button
                     type="button"
                     onClick={() => setCollapsedSections((c) => ({ ...c, greek: !c.greek }))}
@@ -6150,7 +6176,7 @@ const deleteProject = (id) => {
                 </div>
 
                 {/* Commentary */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${studyLayout === 'split' && activeStudyTab !== 'commentary' ? 'hidden' : ''}`}>
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'commentary' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' && activeStudyTab !== 'commentary' ? 'hidden' : ''}`}>
                   <button
                     type="button"
                     onClick={() => setCollapsedSections((c) => ({ ...c, commentary: !c.commentary }))}
@@ -6212,7 +6238,7 @@ const deleteProject = (id) => {
                 </div>
 
                 {/* Final episode script archive */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${studyLayout === 'split' && activeStudyTab !== 'script' ? 'hidden' : ''}`}>
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'script' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' && activeStudyTab !== 'script' ? 'hidden' : ''}`}>
                   <button
                     type="button"
                     onClick={() => setCollapsedSections((c) => ({ ...c, finalScript: !c.finalScript }))}
@@ -6278,7 +6304,8 @@ const deleteProject = (id) => {
               </div>
             ) : (
               <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-8 text-center text-slate-500">
-                Select a chunk from the left panel to edit its notes and Greek studies.
+                <span className="sm:hidden">Use ‹ Prev / Next › above to pick a chunk.</span>
+                <span className="hidden sm:inline">Select a chunk from the left panel to edit its notes and Greek studies.</span>
               </div>
             )}
           </div>
