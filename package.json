@@ -12,7 +12,9 @@
     "start": "NODE_ENV=production node server/index.js",
     "test": "vitest",
     "test:run": "vitest run",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "backup": "bash scripts/backup-data.sh",
+    "restore": "bash scripts/restore-data.sh"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
