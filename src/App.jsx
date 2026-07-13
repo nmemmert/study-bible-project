@@ -3466,7 +3466,7 @@ const deleteProject = (id) => {
             disabled={allChunks.length === 0}
             className="rounded-md bg-violet-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:bg-slate-500"
           >
-            Prepare for Claude
+            <span className="hidden sm:inline">Prepare for </span>Claude
           </button>
           <button
             type="button"
@@ -3475,7 +3475,7 @@ const deleteProject = (id) => {
             title="Copy a prompt for Claude to write a full spoken-word episode script from your notes, ready to record. Optional — only useful if you're producing a podcast or similar audio series. Set your show name in Account Settings first."
             className="rounded-md bg-fuchsia-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-fuchsia-400 disabled:cursor-not-allowed disabled:bg-slate-500"
           >
-            🎙 Prepare for Podcast
+            🎙<span className="hidden sm:inline"> Prepare for Podcast</span>
           </button>
           <button
             type="button"
@@ -3484,7 +3484,7 @@ const deleteProject = (id) => {
             title="Copy a quick word + transliteration list to keep open while recording"
             className="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-slate-500"
           >
-            🗣 Pronunciation Guide
+            🗣<span className="hidden sm:inline"> Pronunciation Guide</span>
           </button>
           <div className="relative">
             <button
@@ -3896,7 +3896,8 @@ const deleteProject = (id) => {
 
           {!adminLoading && !adminError && adminTab === 'users' && (
             <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-panel">
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-sm">
                 <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-4 py-3">Email</th>
@@ -3933,12 +3934,14 @@ const deleteProject = (id) => {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
 
           {!adminLoading && !adminError && adminTab === 'projects' && (
             <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-panel">
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-sm">
                 <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-4 py-3">Title</th>
@@ -3975,6 +3978,7 @@ const deleteProject = (id) => {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
         </main>
@@ -4326,30 +4330,31 @@ const deleteProject = (id) => {
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900">
         <header className="border-b border-slate-200 bg-slate-900 text-white shadow-sm">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-5 sm:px-6 lg:px-8">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6 lg:px-8">
             <div>
               <p className="text-sm uppercase tracking-[0.24em] text-slate-300">Bible Study Project</p>
-              <h1 className="mt-2 text-2xl font-semibold">My Studies</h1>
+              <h1 className="mt-1 text-2xl font-semibold">My Studies</h1>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={openBibleReader}
-                className="rounded-xl border border-slate-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
+                className="rounded-xl border border-slate-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
               >
                 📖 Read Bible
               </button>
               <button
                 type="button"
                 onClick={openImportProject}
-                className="rounded-xl border border-slate-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
+                className="rounded-xl border border-slate-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
               >
-                📥 Import Session List
+                <span className="hidden sm:inline">📥 Import Session List</span>
+                <span className="sm:hidden">📥 Import</span>
               </button>
               <button
                 type="button"
                 onClick={openNewProject}
-                className="rounded-xl bg-slate-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-600"
+                className="rounded-xl bg-slate-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-600"
               >
                 + New Project
               </button>
@@ -4357,7 +4362,7 @@ const deleteProject = (id) => {
             </div>
           </div>
         </header>
-        <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <main className="mx-auto max-w-7xl px-4 py-4 sm:py-8 sm:px-6 lg:px-8">
           {autoRestoredCount !== null && (
             <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
               <p className="text-sm font-semibold text-emerald-800">
@@ -5157,7 +5162,7 @@ const deleteProject = (id) => {
           </div>
         </header>
 
-        <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-8">
+        <main className="mx-auto max-w-7xl px-4 py-4 sm:py-8 sm:px-6 lg:px-8 space-y-8">
           {/* Project setup form — shown when no project loaded yet */}
           {!project && (
             <section className="mx-auto max-w-3xl rounded-3xl border border-slate-200 bg-white p-8 shadow-panel">
@@ -5486,10 +5491,10 @@ const deleteProject = (id) => {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <section className={`grid min-w-0 gap-8 ${studyLayout === 'split' ? '' : 'xl:grid-cols-[280px_1fr]'}`}>
+      <main className="mx-auto max-w-7xl px-4 py-4 sm:py-8 sm:px-6 lg:px-8">
+        <section className={`grid min-w-0 gap-6 ${studyLayout === 'split' ? '' : 'lg:grid-cols-[260px_1fr]'}`}>
           {/* Sidebar */}
-          <aside className={`min-w-0 rounded-3xl border border-slate-200 bg-white p-6 shadow-panel ${studyLayout === 'split' ? 'hidden' : ''}`}>
+          <aside className={`min-w-0 rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-panel ${studyLayout === 'split' ? 'hidden' : ''}`}>
             <div className="mb-4">
               <p className="text-sm font-medium text-slate-500">Chunk Navigation</p>
               <h2 className="mt-2 text-xl font-semibold text-slate-900">{allChunks.length} chunks</h2>
@@ -5564,8 +5569,8 @@ const deleteProject = (id) => {
           </aside>
 
           {/* Chunk editor */}
-          <div className="min-w-0 rounded-3xl border border-slate-200 bg-white p-6 shadow-panel">
-            <div className="flex items-start justify-between">
+          <div className="min-w-0 rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-panel">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-medium text-slate-500">Chunk editor</p>
                 <h2 className="mt-2 text-xl font-semibold text-slate-900">
@@ -5574,7 +5579,7 @@ const deleteProject = (id) => {
                     : 'Select a chunk'}
                 </h2>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {selectedChunk && (
                   <>
                     <button
