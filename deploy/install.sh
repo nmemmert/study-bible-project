@@ -22,9 +22,9 @@ echo "=== Installing Bible Study App to $INSTALL_DIR ==="
 # ── Node check ────────────────────────────────────────────────────────────────
 if ! command -v node >/dev/null 2>&1; then
   echo "ERROR: Node.js is not installed."
-  echo "On Rocky Linux, install via NodeSource, e.g.:"
-  echo "  curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -"
-  echo "  sudo dnf install -y nodejs"
+  echo "On Ubuntu, install via NodeSource, e.g.:"
+  echo "  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+  echo "  sudo apt-get install -y nodejs"
   exit 1
 fi
 NODE_VERSION=$(node -v | sed 's/v//' | cut -d. -f1)
@@ -36,9 +36,8 @@ echo "Node.js $(node -v) found."
 
 # build tools needed for better-sqlite3 native module
 if ! command -v gcc >/dev/null 2>&1 || ! command -v make >/dev/null 2>&1; then
-  echo "Installing build tools (Development Tools group + python3)..."
-  dnf groupinstall -y "Development Tools"
-  dnf install -y python3
+  echo "Installing build tools (build-essential + python3)..."
+  apt-get install -y build-essential python3
 fi
 
 # ── Create service user ─────────────────────────────────────────────────────

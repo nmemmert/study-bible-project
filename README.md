@@ -40,19 +40,21 @@ tail -f .vite.log   # Vite dev server
 
 ---
 
-## Production Install (Rocky Linux / systemd)
+## Production Install (Ubuntu / systemd)
 
 Installs the app as a persistent systemd service under `/opt/study-app`.
 
 ```bash
+# Install Node.js 20 (if not already installed)
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Install build tools (required for better-sqlite3)
+sudo apt-get install -y build-essential python3
+
+# Clone and install
 git clone https://github.com/nmemmert/study-bible-project.git
 cd study-bible-project
-
-# Install build tools (first time only)
-sudo dnf groupinstall -y "Development Tools"
-sudo dnf install -y python3
-
-# Install and enable the service
 sudo bash deploy/install.sh
 ```
 
@@ -70,8 +72,8 @@ systemctl restart study-app         # Restart after an update
 
 **Open the firewall port (if needed):**
 ```bash
-sudo firewall-cmd --add-port=3001/tcp --permanent
-sudo firewall-cmd --reload
+sudo ufw allow 3001/tcp
+sudo ufw reload
 ```
 
 The app listens on **port 3001** by default. Set the `PORT` environment variable in the systemd unit to change it.
