@@ -101,8 +101,15 @@ npm run backup
 This creates `study-app-backup_<timestamp>.zip` in the project root.
 
 **On the new machine — restore after cloning and installing:**
+
+Development:
 ```bash
 npm run restore study-app-backup_<timestamp>.zip
+```
+
+Production (after `sudo bash deploy/install.sh` completes):
+```bash
+sudo bash scripts/restore-data.sh study-app-backup_<timestamp>.zip --production
 ```
 
 See [scripts/backup-data.sh](scripts/backup-data.sh) and [scripts/restore-data.sh](scripts/restore-data.sh) for details.
