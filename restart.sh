@@ -21,5 +21,10 @@ stop_pid_file() {
 stop_pid_file "$ROOT_DIR/.api.pid" "API server"
 stop_pid_file "$ROOT_DIR/.vite.pid" "Vite server"
 
+echo "Pulling latest changes from GitHub..."
+cd "$ROOT_DIR"
+git checkout -- package-lock.json 2>/dev/null || true
+git pull
+
 echo "Restarting via setup.sh..."
 exec "$ROOT_DIR/setup.sh"
