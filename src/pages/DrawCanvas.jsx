@@ -68,51 +68,70 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
     ];
   }, []);
 
-  const onPointerDown = useCallback((e) => {
-    if (e.pointerType === 'touch') return;
-    isDrawingRef.current = true;
-    activeStrokeRef.current = [getPoint(e)];
-    render();
-  }, [getPoint, render]);
+  // Use native addEventListener (not React synthetic events) so that
+  // passive:false works correctly on iOS Safari and events are handled
+  // directly on the canvas element rather than via document-root delegation.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-  const onPointerMove = useCallback((e) => {
-    if (e.pointerType === 'touch') return;
-    if (!isDrawingRef.current) return;
-    e.preventDefault();
-    const pt = getPoint(e);
-    activeStrokeRef.current = [...activeStrokeRef.current, pt];
-    if (drawToolRef.current === 'eraser') {
-      const [ex, ey] = pt;
-      const r = drawSizeRef.current * 3;
-      const remaining = strokesRef.current.filter(
-        (s) => !s.points.some(([sx, sy]) => Math.hypot(sx - ex, sy - ey) < r),
-      );
-      if (remaining.length !== strokesRef.current.length)
-        onStrokesChangeRef.current(remaining);
+    function down(e) {
+      if (e.pointerType === 'touch') return;
+      isDrawingRef.current = true;
+      activeStrokeRef.current = [getPoint(e)];
+      render();
     }
-    render();
-  }, [getPoint, render]);
 
-  const onPointerUp = useCallback((e) => {
-    if (e.pointerType === 'touch') return;
-    if (!isDrawingRef.current) return;
-    isDrawingRef.current = false;
-    const pts = activeStrokeRef.current;
-    if (drawToolRef.current !== 'eraser' && pts.length > 1) {
-      onStrokesChangeRef.current([
-        ...strokesRef.current,
-        {
-          id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
-          tool: drawToolRef.current,
-          color: drawColorRef.current,
-          size: drawSizeRef.current,
-          points: pts,
-        },
-      ]);
+    function move(e) {
+      if (e.pointerType === 'touch') return;
+      if (!isDrawingRef.current) return;
+      e.preventDefault();
+      const pt = getPoint(e);
+      activeStrokeRef.current = [...activeStrokeRef.current, pt];
+      if (drawToolRef.current === 'eraser') {
+        const [ex, ey] = pt;
+        const r = drawSizeRef.current * 3;
+        const remaining = strokesRef.current.filter(
+          (s) => !s.points.some(([sx, sy]) => Math.hypot(sx - ex, sy - ey) < r),
+        );
+        if (remaining.length !== strokesRef.current.length)
+          onStrokesChangeRef.current(remaining);
+      }
+      render();
     }
-    activeStrokeRef.current = [];
-    render();
-  }, [render]);
+
+    function up(e) {
+      if (e.pointerType === 'touch') return;
+      if (!isDrawingRef.current) return;
+      isDrawingRef.current = false;
+      const pts = activeStrokeRef.current;
+      if (drawToolRef.current !== 'eraser' && pts.length > 1) {
+        onStrokesChangeRef.current([
+          ...strokesRef.current,
+          {
+            id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+            tool: drawToolRef.current,
+            color: drawColorRef.current,
+            size: drawSizeRef.current,
+            points: pts,
+          },
+        ]);
+      }
+      activeStrokeRef.current = [];
+      render();
+    }
+
+    canvas.addEventListener('pointerdown', down);
+    canvas.addEventListener('pointermove', move, { passive: false });
+    canvas.addEventListener('pointerup', up);
+    canvas.addEventListener('pointercancel', up);
+    return () => {
+      canvas.removeEventListener('pointerdown', down);
+      canvas.removeEventListener('pointermove', move);
+      canvas.removeEventListener('pointerup', up);
+      canvas.removeEventListener('pointercancel', up);
+    };
+  }, [getPoint, render]);
 
   const undo = () => strokes.length > 0 && onStrokesChange(strokes.slice(0, -1));
   const clear = () =>
@@ -236,10 +255,6 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
             cursor: drawTool === 'eraser' ? 'cell' : 'crosshair',
             touchAction: 'none',
           }}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
         />
       </div>
     </div>
