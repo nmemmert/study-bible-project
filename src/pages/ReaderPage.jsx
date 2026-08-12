@@ -85,7 +85,7 @@ export default function ReaderPage() {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
+      <main className={`mx-auto px-4 py-8 sm:px-6 lg:px-8 ${readerDrawMode ? 'max-w-full' : 'max-w-3xl'}`}>
         {/* Navigation + tools bar */}
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-panel">
           <label className="text-sm text-slate-600">
@@ -437,7 +437,7 @@ export default function ReaderPage() {
         {readerDrawMode && (
           <div className="flex flex-col items-start gap-4 sm:flex-row">
             {/* Scripture panel — sticky so it stays in view while notebook scrolls */}
-            <div className="w-full rounded-3xl border border-slate-200 bg-slate-50 p-5 font-serif text-sm leading-relaxed text-slate-800 sm:w-2/5 sm:shrink-0 sm:sticky sm:top-6 sm:max-h-[80vh] sm:overflow-y-auto">
+            <div className="w-full rounded-3xl border border-slate-200 bg-slate-50 p-5 font-serif text-sm leading-relaxed text-slate-800 sm:w-72 sm:shrink-0 sm:sticky sm:top-6 sm:max-h-[80vh] sm:overflow-y-auto">
               <div className="mb-3">
                 <span className="font-semibold text-slate-900">{readerBook?.name} {readerChapter}</span>
                 <span className="ml-2 text-xs text-slate-400">BSB</span>
