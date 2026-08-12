@@ -119,7 +119,7 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
     onStrokesChange([]);
 
   return (
-    <div className="overflow-hidden rounded-3xl border border-slate-200 shadow-sm">
+    <div className="overflow-hidden rounded-3xl border border-slate-200 shadow-sm select-none" style={{ WebkitUserSelect: 'none' }}>
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-1 border-b border-slate-200 bg-white px-3 py-2">
         {[
