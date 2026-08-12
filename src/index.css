@@ -30,6 +30,13 @@ select {
   font: inherit;
 }
 
+/* When installed as a PWA, push header content below the status bar */
+@media all and (display-mode: standalone) {
+  header {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
 .scrollbar-thin::-webkit-scrollbar {
   width: 9px;
   height: 9px;
