@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { useApp } from '../context/AppContext.js';
 import { renderInkToCanvas } from '../utils/inkRender.js';
 
@@ -8,9 +8,22 @@ const INK_SIZES = [
   { label: 'M', value: 0.012 },
   { label: 'L', value: 0.025 },
 ];
+const PAGE_HEIGHT = 640; // px per notebook page
+
+// Page count is persisted as a hidden metadata stroke at strokes[0]
+// so the canvas size survives navigation without a separate state key.
+function extractMeta(strokes) {
+  if (strokes.length > 0 && strokes[0]?._meta) {
+    return { pageCount: strokes[0].pageCount ?? 1, realStrokes: strokes.slice(1) };
+  }
+  return { pageCount: 1, realStrokes: strokes };
+}
+function packStrokes(realStrokes, pageCount) {
+  return [{ _meta: true, pageCount }, ...realStrokes];
+}
 
 // Standalone notebook-style draw canvas.
-// strokes: array of saved stroke objects
+// strokes: array of saved stroke objects (may include a leading metadata object)
 // onStrokesChange: (newStrokes) => void
 // onDone: optional () => void — shows "Done" button when provided
 // headerContent: optional JSX rendered above the notebook area.
@@ -18,18 +31,26 @@ const INK_SIZES = [
 export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerContent }) {
   const { drawTool, setDrawTool, drawColor, setDrawColor, drawSize, setDrawSize } = useApp();
 
+  const { pageCount: initPages } = extractMeta(strokes);
+  const [pageCount, setPageCount] = useState(initPages);
+
+  // realStrokes = strokes without the metadata header
+  const { realStrokes } = extractMeta(strokes);
+
   const canvasRef = useRef(null);
   const activeStrokeRef = useRef([]);
   const isDrawingRef = useRef(false);
 
   // Refs prevent stale closures in stable callbacks
-  const strokesRef = useRef(strokes);
+  const strokesRef = useRef(realStrokes);
   const onStrokesChangeRef = useRef(onStrokesChange);
   const drawToolRef = useRef(drawTool);
   const drawColorRef = useRef(drawColor);
   const drawSizeRef = useRef(drawSize);
-  strokesRef.current = strokes;
+  strokesRef.current = realStrokes;
   onStrokesChangeRef.current = onStrokesChange;
+  const pageCountRef = useRef(pageCount);
+  pageCountRef.current = pageCount;
   drawToolRef.current = drawTool;
   drawColorRef.current = drawColor;
   drawSizeRef.current = drawSize;
@@ -47,7 +68,7 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
     );
   }, []);
 
-  useEffect(() => { render(); }, [strokes, drawTool, drawColor, drawSize, render]);
+  useEffect(() => { render(); }, [realStrokes, drawTool, drawColor, drawSize, render]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -75,16 +96,19 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
     function commitStroke() {
       const pts = activeStrokeRef.current;
       if (drawToolRef.current !== 'eraser' && pts.length > 1) {
-        onStrokesChangeRef.current([
-          ...strokesRef.current,
-          {
-            id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
-            tool: drawToolRef.current,
-            color: drawColorRef.current,
-            size: drawSizeRef.current,
-            points: pts,
-          },
-        ]);
+        onStrokesChangeRef.current(packStrokes(
+          [
+            ...strokesRef.current,
+            {
+              id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+              tool: drawToolRef.current,
+              color: drawColorRef.current,
+              size: drawSizeRef.current,
+              points: pts,
+            },
+          ],
+          pageCountRef.current,
+        ));
       }
       activeStrokeRef.current = [];
       isDrawingRef.current = false;
@@ -98,7 +122,7 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
         (s) => !s.points.some(([sx, sy]) => Math.hypot(sx - ex, sy - ey) < r),
       );
       if (remaining.length !== strokesRef.current.length)
-        onStrokesChangeRef.current(remaining);
+        onStrokesChangeRef.current(packStrokes(remaining, pageCountRef.current));
     }
 
     // iOS Safari: Apple Pencil fires Touch Events with touchType === 'stylus'.
@@ -197,11 +221,27 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
     };
   }, [getPoint, render]);
 
-  const undo = () => strokes.length > 0 && onStrokesChange(strokes.slice(0, -1));
+  const undo = () =>
+    realStrokes.length > 0 &&
+    onStrokesChange(packStrokes(realStrokes.slice(0, -1), pageCount));
+
   const clear = () =>
-    strokes.length > 0 &&
+    realStrokes.length > 0 &&
     window.confirm('Clear all ink notes?') &&
-    onStrokesChange([]);
+    onStrokesChange(packStrokes([], pageCount));
+
+  // Add another notebook page below existing content.
+  // Rescales all stroke y-coords so existing ink stays at the same pixel position.
+  const addSpace = () => {
+    const newCount = pageCount + 1;
+    const ratio = pageCount / newCount;
+    const rescaled = realStrokes.map((s) => ({
+      ...s,
+      points: s.points.map(([x, y, p]) => [x, y * ratio, p]),
+    }));
+    onStrokesChange(packStrokes(rescaled, newCount));
+    setPageCount(newCount);
+  };
 
   return (
     <div className="overflow-hidden rounded-3xl border border-slate-200 shadow-sm select-none" style={{ WebkitUserSelect: 'none' }}>
@@ -259,7 +299,7 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
         <button
           type="button"
           onClick={undo}
-          disabled={strokes.length === 0}
+          disabled={realStrokes.length === 0}
           className="rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-40"
         >
           Undo
@@ -267,7 +307,7 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
         <button
           type="button"
           onClick={clear}
-          disabled={strokes.length === 0}
+          disabled={realStrokes.length === 0}
           className="rounded-lg px-2.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-40"
         >
           Clear
@@ -298,10 +338,10 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
             {headerContent}
           </div>
         )}
-        {/* Ruled notebook area */}
+        {/* Ruled notebook area — height grows with pageCount */}
         <div
           style={{
-            minHeight: 640,
+            minHeight: PAGE_HEIGHT * pageCount,
             background: 'white',
             backgroundImage: 'repeating-linear-gradient(transparent 0px, transparent 31px, #dde3ec 31px, #dde3ec 32px)',
           }}
@@ -321,6 +361,15 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
           }}
         />
       </div>
+
+      {/* Add more notebook space */}
+      <button
+        type="button"
+        onClick={addSpace}
+        className="w-full border-t border-slate-200 bg-slate-50 py-3 text-xs font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+      >
+        + Add More Space
+      </button>
     </div>
   );
 }
