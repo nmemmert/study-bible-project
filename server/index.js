@@ -11,6 +11,7 @@ import {
   getShareToken, setShareToken, clearShareToken, getProjectByShareToken,
   adminGetAllUsers, adminDeleteUser, adminGetAllProjects, adminGetProject, adminDeleteProject,
   setUserPassword, destroyAllSessionsForUser,
+  getAllReaderInk, setReaderInkPage,
 } from './db.js';
 import { SqliteSessionStore } from './sessionStore.js';
 import {
@@ -356,6 +357,34 @@ app.delete('/api/projects/:id', requireAuth, (req, res) => {
   } catch (err) {
     console.error('DELETE /api/projects/:id error:', err);
     res.status(500).json({ error: 'Failed to delete project.' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Reader ink — cross-device draw annotations on Bible chapters
+// ---------------------------------------------------------------------------
+
+// GET /api/reader/ink — all saved ink pages for the current user
+app.get('/api/reader/ink', requireAuth, (req, res) => {
+  try {
+    res.json(getAllReaderInk(req.session.userId));
+  } catch (err) {
+    console.error('GET /api/reader/ink error:', err);
+    res.status(500).json({ error: 'Failed to load reader ink.' });
+  }
+});
+
+// PUT /api/reader/ink/:book/:chapter — save (upsert) one page's ink
+app.put('/api/reader/ink/:book/:chapter', requireAuth, (req, res) => {
+  try {
+    const { book, chapter } = req.params;
+    const { strokes } = req.body;
+    if (!Array.isArray(strokes)) return res.status(400).json({ error: 'strokes must be an array.' });
+    setReaderInkPage(req.session.userId, book, chapter, strokes);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('PUT /api/reader/ink error:', err);
+    res.status(500).json({ error: 'Failed to save reader ink.' });
   }
 });
 

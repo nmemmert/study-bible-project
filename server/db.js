@@ -69,6 +69,18 @@ export function initDb() {
   }
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_share_token ON projects(share_token) WHERE share_token IS NOT NULL');
 
+  // Reader ink — one row per user + book + chapter, stored as JSON
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS reader_ink (
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      book_abbrev TEXT NOT NULL,
+      chapter     INTEGER NOT NULL,
+      strokes     TEXT NOT NULL,
+      updated_at  INTEGER NOT NULL,
+      PRIMARY KEY (user_id, book_abbrev, chapter)
+    );
+  `);
+
   console.log(`SQLite database ready at ${DB_PATH}`);
 }
 
@@ -144,6 +156,30 @@ export function setPodcastName(userId, podcastName) {
 /** Rewrites the remaining backup-code hashes after one is used (single-use codes). */
 export function setBackupCodeHashes(userId, backupCodeHashes) {
   db.prepare('UPDATE users SET backup_codes = ? WHERE id = ?').run(JSON.stringify(backupCodeHashes), userId);
+}
+
+// ---------------------------------------------------------------------------
+// Reader ink — cross-device sync for draw-mode annotations in the reader
+// ---------------------------------------------------------------------------
+
+/** Returns all saved reader ink pages for a user as { "BOOK_CH": strokes[] }. */
+export function getAllReaderInk(userId) {
+  const rows = db.prepare(
+    'SELECT book_abbrev AS book, chapter, strokes FROM reader_ink WHERE user_id = ?'
+  ).all(userId);
+  return Object.fromEntries(
+    rows.map((r) => [`${r.book}_${r.chapter}`, JSON.parse(r.strokes)])
+  );
+}
+
+/** Upserts the ink strokes for one reader page. */
+export function setReaderInkPage(userId, bookAbbrev, chapter, strokes) {
+  db.prepare(`
+    INSERT INTO reader_ink (user_id, book_abbrev, chapter, strokes, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, book_abbrev, chapter)
+    DO UPDATE SET strokes = excluded.strokes, updated_at = excluded.updated_at
+  `).run(userId, bookAbbrev, Number(chapter), JSON.stringify(strokes), Date.now());
 }
 
 /**

@@ -1199,6 +1199,8 @@ const App = () => {
     try { return JSON.parse(localStorage.getItem('readerInkByPage') ?? '{}'); }
     catch { return {}; }
   });
+  // Debounce timer ref so rapid stroke updates don't flood the server
+  const inkSaveTimerRef = useRef({});
   const audioRef = useRef(null);
   const audioModeRef = useRef('book'); // 'book' | 'reader' — which player owns audioRef
   const audioBookRef = useRef(audioBook);
@@ -1558,6 +1560,15 @@ const App = () => {
       try { localStorage.setItem('readerInkByPage', JSON.stringify(next)); } catch {}
       return next;
     });
+    // Debounce server sync — wait 1 s after last stroke before sending
+    clearTimeout(inkSaveTimerRef.current[key]);
+    inkSaveTimerRef.current[key] = setTimeout(() => {
+      fetch(`/api/reader/ink/${encodeURIComponent(bookAbbrev)}/${encodeURIComponent(chapter)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ strokes }),
+      }).catch(() => {}); // silent — localStorage already saved locally
+    }, 1000);
   }, []);
 
   const cycleBookmarkColor = (verseKey) => {
@@ -1610,7 +1621,21 @@ const App = () => {
     getCurrentUser().then((result) => {
       if (result.ok) {
         setAuthUser(result.user);
-        if (result.user) setProjectIndex(switchStorageUser(result.user.id));
+        if (result.user) {
+          setProjectIndex(switchStorageUser(result.user.id));
+          // Load reader ink from the server; server wins over any stale localStorage copy
+          fetch('/api/reader/ink')
+            .then((r) => r.ok ? r.json() : null)
+            .then((serverInk) => {
+              if (!serverInk) return;
+              setReaderInkByPage((local) => {
+                const merged = { ...local, ...serverInk };
+                try { localStorage.setItem('readerInkByPage', JSON.stringify(merged)); } catch {}
+                return merged;
+              });
+            })
+            .catch(() => {});
+        }
       } else {
         // Genuine network failure (server unreachable) — fall back to local-only mode.
         setAuthServerDown(true);
