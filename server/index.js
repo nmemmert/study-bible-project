@@ -31,6 +31,22 @@ if (isProd && !process.env.SESSION_SECRET) {
 // Trust the reverse proxy (needed for secure cookies to work behind nginx/etc).
 app.set('trust proxy', 1);
 
+// Simple in-memory rate limiter for auth endpoints — 10 attempts per 15 min per IP.
+const _authAttempts = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, e] of _authAttempts) if (now > e.resetAt) _authAttempts.delete(ip);
+}, 60 * 60 * 1000);
+function checkAuthRateLimit(ip) {
+  const now = Date.now();
+  const window = 15 * 60 * 1000;
+  const e = _authAttempts.get(ip) ?? { count: 0, resetAt: now + window };
+  if (now > e.resetAt) { e.count = 0; e.resetAt = now + window; }
+  e.count += 1;
+  _authAttempts.set(ip, e);
+  return e.count > 10;
+}
+
 app.use(express.json({ limit: '10mb' }));
 app.use(session({
   store: new SqliteSessionStore(),
@@ -59,6 +75,7 @@ app.get('/api/health', (_req, res) => {
 
 app.post('/api/auth/register', async (req, res) => {
   try {
+    if (checkAuthRateLimit(req.ip)) return res.status(429).json({ error: 'Too many attempts. Please wait 15 minutes.' });
     const email = String(req.body?.email ?? '').trim().toLowerCase();
     const password = String(req.body?.password ?? '');
 
@@ -93,6 +110,7 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   try {
+    if (checkAuthRateLimit(req.ip)) return res.status(429).json({ error: 'Too many attempts. Please wait 15 minutes.' });
     const email = String(req.body?.email ?? '').trim().toLowerCase();
     const password = String(req.body?.password ?? '');
 
@@ -121,6 +139,7 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.post('/api/auth/mfa/verify', async (req, res) => {
   try {
+    if (checkAuthRateLimit(req.ip)) return res.status(429).json({ error: 'Too many attempts. Please wait 15 minutes.' });
     const pendingUserId = req.session?.pendingUserId;
     if (!pendingUserId) {
       return res.status(400).json({ error: 'No sign-in in progress.' });
@@ -314,6 +333,8 @@ app.put('/api/projects/:id', requireAuth, (req, res) => {
     if (body.id !== req.params.id) {
       return res.status(400).json({ error: 'URL id does not match body id.' });
     }
+    if (body.id.length > 100) return res.status(400).json({ error: 'Invalid project id.' });
+    if (body.title.length > 500) return res.status(400).json({ error: 'Project title is too long.' });
     const saved = upsertProject(body, req.session.userId);
     if (!saved) {
       return res.status(403).json({ error: 'That project belongs to a different account.' });

@@ -168,6 +168,7 @@ export function migrateChunk(chunk) {
       episodeTitle: chunk.episodeTitle ?? '',
       finalScript: chunk.finalScript ?? '',
       tags: chunk.tags ?? [],
+      inkStrokes: chunk.inkStrokes ?? [],
     }; // already new format
   }
   return {
@@ -177,6 +178,7 @@ export function migrateChunk(chunk) {
     application: '',
     crossReferences: [],
     tags: [],
+    inkStrokes: [],
     spilloverEndVerse: null,
     generalNotes: '',
     episodeNumber: '',
@@ -1283,7 +1285,10 @@ const App = () => {
   }, []);
   const [studyLayout, setStudyLayout] = useState(
     () => localStorage.getItem('studyLayout') || 'stacked',
-  ); // 'stacked' | 'split'
+  ); // 'stacked' | 'split' | 'annotate'
+  const [drawTool, setDrawTool] = useState('pen');
+  const [drawColor, setDrawColor] = useState('#0f172a');
+  const [drawSize, setDrawSize] = useState(0.012);
   const [activeStudyTab, setActiveStudyTab] = useState(
     () => localStorage.getItem('activeStudyTab') || 'notes',
   );
@@ -3751,6 +3756,9 @@ const deleteProject = (id) => {
     selectedChunkVerses,
     selectedChunkGlobalIndex,
     studyLayout, setStudyLayout,
+    drawTool, setDrawTool,
+    drawColor, setDrawColor,
+    drawSize, setDrawSize,
     activeStudyTab, setActiveStudyTab,
     mobileStudyTab, setMobileStudyTab,
     collapsedSections, setCollapsedSections,

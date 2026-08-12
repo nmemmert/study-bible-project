@@ -2,6 +2,7 @@ import { createPortal } from 'react-dom';
 import DOMPurify from 'dompurify';
 import { useApp } from '../context/AppContext.js';
 import { STUDY_TABS, COMMENTARY_OPTIONS, NT_BOOK_NUMBER, formatChunkReference, CrossRefChip } from '../App.jsx';
+import DrawCanvas, { InkLayer } from './DrawCanvas.jsx';
 
 export default function StudyPage() {
   const {
@@ -192,14 +193,26 @@ export default function StudyPage() {
                     Choose a chunk to study.
                   </div>
                 )}
-                <button
-                  type="button"
-                  onClick={() => setStudyLayout((m) => (m === 'split' ? 'stacked' : 'split'))}
-                  className="max-sm:hidden rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
-                  title="Toggle two-pane study layout"
-                >
-                  {studyLayout === 'split' ? '☰ Stacked View' : '◫ Split View'}
-                </button>
+                <div className="max-sm:hidden flex divide-x divide-slate-200 overflow-hidden rounded-2xl border border-slate-300">
+                  {[
+                    { id: 'stacked', label: '☰ Stacked' },
+                    { id: 'split', label: '◫ Split' },
+                    { id: 'annotate', label: '✏ Draw' },
+                  ].map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setStudyLayout(m.id)}
+                      className={`px-3 py-2 text-sm font-semibold transition ${
+                        studyLayout === m.id
+                          ? 'bg-slate-900 text-white'
+                          : 'bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -232,7 +245,7 @@ export default function StudyPage() {
               <div className="mt-6 space-y-6">
               <div className={`space-y-6 ${studyLayout === 'split' ? 'lg:flex lg:items-start lg:gap-6 lg:space-y-0' : ''}`}>
                 {/* Scripture */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'scripture' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' ? 'lg:sticky lg:top-6 lg:flex-1 lg:basis-0 lg:min-w-0 lg:self-start' : ''}`}>
+                <div className={`relative overflow-hidden rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'scripture' && studyLayout !== 'annotate' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' ? 'lg:sticky lg:top-6 lg:flex-1 lg:basis-0 lg:min-w-0 lg:self-start' : ''}`}>
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-slate-700">Scripture</p>
@@ -250,6 +263,9 @@ export default function StudyPage() {
                         </p>
                       ))}
                   </div>
+
+                  <InkLayer strokes={selectedChunk?.inkStrokes ?? []} />
+                  {studyLayout === 'annotate' && <DrawCanvas />}
 
                   {/* Interlinear */}
                   <div className="mt-4 border-t border-slate-200 pt-4">
