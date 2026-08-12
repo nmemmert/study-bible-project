@@ -51,7 +51,6 @@ export default function ReaderPage() {
   const [readerDrawMode, setReaderDrawMode] = useState(false);
   const readerPageInkStrokes = readerInkByPage?.[`${readerBookAbbrev}_${readerChapter}`] ?? [];
 
-  useEffect(() => { setReaderDrawMode(false); }, [readerBookAbbrev, readerChapter]);
   const bookmarkEntries = Object.entries(readerBookmarks).map(([key, color]) => {
     const [bAbbrev, chapterStr, verseStr] = key.split('-');
     const bookIndex = bookOptions.findIndex((b) => b.abbrev === bAbbrev);
