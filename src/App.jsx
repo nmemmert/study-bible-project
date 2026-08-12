@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import DOMPurify from 'dompurify';
 import mammoth from 'mammoth';
+
+import { AppContext, useApp } from './context/AppContext.js';
+import AdminPage from './pages/AdminPage.jsx';
+import AuthPage from './pages/AuthPage.jsx';
+import HomePage from './pages/HomePage.jsx';
+import ImportPage from './pages/ImportPage.jsx';
+import ReaderPage from './pages/ReaderPage.jsx';
+import SettingsPage from './pages/SettingsPage.jsx';
+import SetupPage from './pages/SetupPage.jsx';
+import StudyPage from './pages/StudyPage.jsx';
 import {
   AlignmentType,
   BorderStyle,
@@ -44,7 +52,7 @@ import {
   adminDeleteProject,
 } from './syncService.js';
 
-const COMMENTARY_OPTIONS = [
+export const COMMENTARY_OPTIONS = [
   { id: 'matthew-henry', name: 'Matthew Henry' },
   { id: 'john-gill', name: 'John Gill' },
   { id: 'jamieson-fausset-brown', name: 'Jamieson-Fausset-Brown' },
@@ -53,7 +61,7 @@ const COMMENTARY_OPTIONS = [
   { id: 'tyndale', name: 'Tyndale Open Study Notes' },
 ];
 
-const STUDY_TABS = [
+export const STUDY_TABS = [
   { id: 'notes', label: 'Notes' },
   { id: 'crossRefs', label: 'Cross-Refs' },
   { id: 'wordStudy', label: 'Word Study' },
@@ -61,7 +69,7 @@ const STUDY_TABS = [
   { id: 'script', label: 'Script' },
 ];
 
-const bookOptions = [
+export const bookOptions = [
   { name: 'Genesis', abbrev: 'GEN' },
   { name: 'Exodus', abbrev: 'EXO' },
   { name: 'Leviticus', abbrev: 'LEV' },
@@ -130,7 +138,7 @@ const bookOptions = [
   { name: 'Revelation', abbrev: 'REV' },
 ];
 
-const NT_BOOK_NUMBER = {
+export const NT_BOOK_NUMBER = {
   MAT: 40, MRK: 41, LUK: 42, JHN: 43, ACT: 44,
   ROM: 45, '1CO': 46, '2CO': 47, GAL: 48, EPH: 49,
   PHP: 50, COL: 51, '1TH': 52, '2TH': 53, '1TI': 54,
@@ -187,7 +195,7 @@ function chunkSpansNextChapter(project, startChapterIndex, chunk) {
   return startChapter?.bookAbbrev && startChapter.bookAbbrev === nextChapter?.bookAbbrev;
 }
 
-function formatChunkReference(project, startChapterIndex, chunk, separator = '-') {
+export function formatChunkReference(project, startChapterIndex, chunk, separator = '-') {
   if (!project || !chunk) return '';
   const startChapter = project.chapters?.[startChapterIndex];
   if (!startChapter) return '';
@@ -313,7 +321,7 @@ function migrateLegacyLocalDataToUser(userId) {
 }
 
 /** Switches the active local-storage namespace and returns the freshly loaded index for it. */
-function switchStorageUser(userId) {
+export function switchStorageUser(userId) {
   activeStorageUserId = userId ?? null;
   if (userId) migrateLegacyLocalDataToUser(userId);
   return loadProjectIndex();
@@ -397,7 +405,7 @@ function buildChapterSummary(project) {
     .join(', ');
 }
 
-function formatRelativeDate(ts) {
+export function formatRelativeDate(ts) {
   if (!ts) return '';
   const diff = Date.now() - ts;
   const mins = Math.floor(diff / 60000);
@@ -412,6 +420,8 @@ function formatRelativeDate(ts) {
 // ---------------------------------------------------------------------------
 // Export / prompt builders (exported for testing)
 // ---------------------------------------------------------------------------
+
+const escHtml = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 export function buildExportHtml(project) {
   const style = `
@@ -440,28 +450,28 @@ export function buildExportHtml(project) {
   const chapters = Array.isArray(project.chapters) ? project.chapters : [];
 
   const chunksHtml = chapters.map((ch, chapterIndex) => {
-    const chapterHeader = `<h2 class="chapter-heading">${ch.book} ${ch.chapter}</h2>`;
+    const chapterHeader = `<h2 class="chapter-heading">${escHtml(ch.book)} ${escHtml(ch.chapter)}</h2>`;
     const chunkSections = ch.chunks.map((chunk) => {
       const scripture = formatChunkReference(project, chapterIndex, chunk, '-');
       const versesText = getChunkVerseEntries(project, chapterIndex, chunk)
-        .map((verse) => `<p class="verse"><strong>${verse.chapter}:${verse.number}</strong> ${verse.text}</p>`)
+        .map((verse) => `<p class="verse"><strong>${escHtml(verse.chapter)}:${escHtml(verse.number)}</strong> ${escHtml(verse.text)}</p>`)
         .join('');
 
-      const observation = (chunk.observation ?? '').trim().replace(/\n/g, '<br />') || '<em>No observation.</em>';
-      const interpretation = (chunk.interpretation ?? '').trim().replace(/\n/g, '<br />') || '<em>No interpretation.</em>';
-      const application = (chunk.application ?? '').trim().replace(/\n/g, '<br />') || '<em>No application.</em>';
+      const observation = escHtml((chunk.observation ?? '').trim()).replace(/\n/g, '<br />') || '<em>No observation.</em>';
+      const interpretation = escHtml((chunk.interpretation ?? '').trim()).replace(/\n/g, '<br />') || '<em>No interpretation.</em>';
+      const application = escHtml((chunk.application ?? '').trim()).replace(/\n/g, '<br />') || '<em>No application.</em>';
 
       const crossRefsHtml = (chunk.crossReferences ?? []).length > 0
-        ? `<div class="cross-refs"><strong>CROSS-REFERENCES:</strong> ${chunk.crossReferences.join(', ')}</div>`
+        ? `<div class="cross-refs"><strong>CROSS-REFERENCES:</strong> ${chunk.crossReferences.map(escHtml).join(', ')}</div>`
         : '';
 
       const greekRows = chunk.greekWords.map((word) => `
         <tr>
-          <td><strong>${word.strongNumber}</strong></td>
-          <td>${word.lexeme || ''}</td>
-          <td>${word.transliteration || ''}</td>
-          <td>${word.partOfSpeech || ''}</td>
-          <td>${word.shortDefinition || ''}</td>
+          <td><strong>${escHtml(word.strongNumber)}</strong></td>
+          <td>${escHtml(word.lexeme)}</td>
+          <td>${escHtml(word.transliteration)}</td>
+          <td>${escHtml(word.partOfSpeech)}</td>
+          <td>${escHtml(word.shortDefinition)}</td>
         </tr>
       `).join('');
       const greekTable = wordTableHtml(greekRows);
@@ -470,7 +480,7 @@ export function buildExportHtml(project) {
           if (word.definitionHtml) {
             return `
               <div class="definition-block">
-                <p><strong>${word.strongNumber} — ${word.lexeme || ''}</strong></p>
+                <p><strong>${escHtml(word.strongNumber)} — ${escHtml(word.lexeme)}</strong></p>
                 <div class="definition">${word.definitionHtml}</div>
               </div>
             `;
@@ -485,7 +495,7 @@ export function buildExportHtml(project) {
               : `<a href="https://biblehub.com/search.php?q=${encodeURIComponent(raw)}">BibleHub</a> · <a href="https://www.blueletterbible.org/search/search.cfm?Criteria=${encodeURIComponent(raw)}&t=KJV#s=s_lexiconc">Blue Letter Bible</a>`;
             return `
               <div class="definition-block" style="border-color:#fcd34d;background:#fffbeb;">
-                <p><strong>${raw}</strong> — definition not found in auto-lookup</p>
+                <p><strong>${escHtml(raw)}</strong> — definition not found in auto-lookup</p>
                 <p style="margin-top:0.5rem;font-size:0.9rem;">Look it up manually: ${links}</p>
               </div>
             `;
@@ -496,7 +506,7 @@ export function buildExportHtml(project) {
 
       return `
         <section class="chunk">
-          <div class="scripture-ref">${scripture}</div>
+          <div class="scripture-ref">${escHtml(scripture)}</div>
           ${versesText}
           <div class="oia">
             <div class="oia-section"><strong>OBSERVATION:</strong><p>${observation}</p></div>
@@ -519,13 +529,13 @@ export function buildExportHtml(project) {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${project.title}</title>
+  <title>${escHtml(project.title)}</title>
   <style>${style}</style>
 </head>
 <body>
   <div class="page">
-    <h1>${project.title}</h1>
-    <p>${project.translation}</p>
+    <h1>${escHtml(project.title)}</h1>
+    <p>${escHtml(project.translation)}</p>
     ${chunksHtml}
   </div>
 </body>
@@ -975,7 +985,7 @@ async function parseEpisodeListDocx(file) {
 
 // Small, unambiguous icons for the reader's verse actions (replaces emoji, which
 // don't reliably convey "bookmark this" vs. "already bookmarked" at a glance).
-function BookmarkIcon({ filled }) {
+export function BookmarkIcon({ filled }) {
   return (
     <svg viewBox="0 0 20 20" width="16" height="16" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.6">
       <path d="M5 3.5C5 2.67 5.67 2 6.5 2h7c.83 0 1.5.67 1.5 1.5v14l-5-3.5-5 3.5v-14z" strokeLinejoin="round" />
@@ -983,7 +993,7 @@ function BookmarkIcon({ filled }) {
   );
 }
 
-function CopyIcon() {
+export function CopyIcon() {
   return (
     <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6">
       <rect x="7" y="7" width="10" height="11" rx="1.5" />
@@ -993,7 +1003,7 @@ function CopyIcon() {
 }
 
 // A cross-reference chip that fetches and shows the referenced verse text on hover
-function CrossRefChip({ label, onRemove, loadVerseText }) {
+export function CrossRefChip({ label, onRemove, loadVerseText }) {
   const [hovered, setHovered] = useState(false);
   const [verseText, setVerseText] = useState(null);
   const [error, setError] = useState('');
@@ -3598,11 +3608,221 @@ const deleteProject = (id) => {
     </div>
   );
 
+
   // ---------------------------------------------------------------------------
-  // Shared read-only view — a ?share=TOKEN link, no login required at all.
-  // Renders in a sandboxed iframe (scripts disabled) since the HTML embeds
-  // user-authored notes that aren't HTML-escaped.
+  // Context value — every state, handler, and computed value pages need.
   // ---------------------------------------------------------------------------
+  const contextValue = {
+    // Navigation
+    currentPage, setCurrentPage,
+    goHome,
+    authServerDown,
+    // Shared view
+    sharedViewToken,
+    sharedProject,
+    sharedError,
+    // Auth
+    authUser, setAuthUser,
+    authStatus,
+    authMode, setAuthMode,
+    authForm, setAuthForm,
+    authError, setAuthError,
+    authBusy, setAuthBusy,
+    authMfaPending, setAuthMfaPending,
+    authMfaCode, setAuthMfaCode,
+    authMfaUseBackup, setAuthMfaUseBackup,
+    setProjectIndex,
+    // Settings — MFA
+    mfaSetup, setMfaSetup,
+    mfaSetupCode, setMfaSetupCode,
+    mfaSetupError, setMfaSetupError,
+    mfaSetupBusy, setMfaSetupBusy,
+    mfaBackupCodes, setMfaBackupCodes,
+    mfaDisablePassword, setMfaDisablePassword,
+    mfaDisableError, setMfaDisableError,
+    // Settings — password / podcast
+    podcastNameInput, setPodcastNameInput,
+    podcastNameSaving, setPodcastNameSaving,
+    podcastNameSaved, setPodcastNameSaved,
+    changePasswordForm, setChangePasswordForm,
+    changePasswordBusy, setChangePasswordBusy,
+    changePasswordError, setChangePasswordError,
+    changePasswordSaved, setChangePasswordSaved,
+    // Home
+    projectIndex,
+    autoRestoredCount,
+    staleLocalProjects,
+    homeSearch, setHomeSearch,
+    homeSort, setHomeSort,
+    homeTagFilter, setHomeTagFilter,
+    renamingId, setRenamingId,
+    renameValue, setRenameValue,
+    openBibleReader,
+    openImportProject,
+    openNewProject,
+    pullLatestFromServer,
+    resumeProject,
+    renameProjectInStorage,
+    deleteProject,
+    // Audio
+    audioBook, setAudioBook,
+    audioNarrator, setAudioNarrator,
+    audioState,
+    handlePlayBookAudio,
+    handleStopBookAudio,
+    handleToggleBookAudioPause,
+    // Import
+    importBookAbbrev, setImportBookAbbrev,
+    importTranslation, setImportTranslation,
+    importTitle, setImportTitle,
+    importFile,
+    importPreview,
+    importBusy,
+    importError,
+    handleImportFileChange,
+    runEpisodeImport,
+    // Reader
+    readerBookAbbrev, setReaderBookAbbrev,
+    readerChapter, setReaderChapter,
+    readerVerses,
+    readerTotalChapters,
+    readerLoading,
+    readerError,
+    readerInterlinear,
+    readerSelectedVerse, setReaderSelectedVerse,
+    readerFontSize, setReaderFontSize,
+    readerBookmarks, setReaderBookmarks,
+    readerBookmarksPanelOpen, setReaderBookmarksPanelOpen,
+    readerCrossRefs, setReaderCrossRefs,
+    readerCrossRefsLoading,
+    readerShowCrossRefs, setReaderShowCrossRefs,
+    readerSearch, setReaderSearch,
+    readerSearchActive, setReaderSearchActive,
+    readerSearchScope, setReaderSearchScope,
+    readerAudioState,
+    bibleIndexStatus,
+    loadReaderChapter,
+    _bibleIndexCacheRef,
+    handleReaderBookChange,
+    readerGoToPreviousChapter,
+    readerGoToNextChapter,
+    jumpToReaderVerse,
+    toggleReaderBookmark,
+    cycleBookmarkColor,
+    loadReaderCrossRefs,
+    loadBibleIndex,
+    handlePlayReaderAudio,
+    handleToggleReaderAudioPause,
+    copyVerse,
+    // Setup
+    availableTranslations,
+    project, setProject,
+    setup,
+    titleEdited, setTitleEdited,
+    activeChapterIndex, setActiveChapterIndex,
+    activeChapter,
+    showAddChapterForm, setShowAddChapterForm,
+    rangeStart, setRangeStart,
+    rangeEnd, setRangeEnd,
+    verseSearch, setVerseSearch,
+    typedChunkStart, setTypedChunkStart,
+    typedChunkEnd, setTypedChunkEnd,
+    typedChunkNextEnd, setTypedChunkNextEnd,
+    typedChunkBulk, setTypedChunkBulk,
+    clickedSpanNextEnd, setClickedSpanNextEnd,
+    loadingChapter,
+    errorMessage,
+    statusMessage,
+    allChunks,
+    handleSetupField,
+    handleLoadChapter,
+    beginStudying,
+    handleVerseClick,
+    addTypedChunk,
+    addBulkTypedChunks,
+    addClickSpanChunk,
+    moveChunk,
+    deleteChunk,
+    updateProject,
+    // Study
+    selectedChunk,
+    selectedChunkChapterIndex,
+    selectedChunkChapter,
+    selectedChunkVerses,
+    selectedChunkGlobalIndex,
+    studyLayout, setStudyLayout,
+    activeStudyTab, setActiveStudyTab,
+    mobileStudyTab, setMobileStudyTab,
+    collapsedSections, setCollapsedSections,
+    interlinearData,
+    interlinearLoading,
+    interlinearError,
+    commentarySource, setCommentarySource,
+    commentaryData,
+    commentaryLoading,
+    commentaryError,
+    crossRefInput, setCrossRefInput,
+    suggestingCrossRefs,
+    crossRefSuggestions,
+    tagInput, setTagInput,
+    suggestModal, setSuggestModal,
+    suggestSelection, setSuggestSelection,
+    suggestingGreekForChunkId,
+    suggestingHebrewForChunkId,
+    goToPreviousChunk,
+    goToNextChunk,
+    updateChunk,
+    addCrossRef,
+    removeCrossRef,
+    suggestCrossRefsForChunk,
+    addSuggestedCrossRef,
+    addTag,
+    removeTag,
+    addGreekWord,
+    removeGreekWord,
+    updateChunkWord,
+    lookupWord,
+    suggestGreekWordsForChunk,
+    suggestHebrewWordsForChunk,
+    confirmSuggestWords,
+    speakOriginalWord,
+    loadVerseText,
+    importFinalScriptDocx,
+    // Admin
+    adminTab, setAdminTab,
+    adminUsers,
+    adminProjects,
+    adminLoading,
+    adminError,
+    adminViewProject, setAdminViewProject,
+    adminResetResult, setAdminResetResult,
+    loadAdminData,
+    // Functions defined inside App (cannot be module-level exports)
+    formatCrossRef,
+    buildGreekDefinitionHtml,
+    externalLookupLinks,
+    // Computed JSX
+    authStatus,
+    headerButtons,
+  };
+
+  return (
+    <AppContext.Provider value={contextValue}>
+      <AppRouter />
+    </AppContext.Provider>
+  );
+};
+
+function AppRouter() {
+  const {
+    currentPage,
+    authUser,
+    authServerDown,
+    sharedViewToken,
+    sharedProject,
+    sharedError,
+  } = useApp();
+
   if (sharedViewToken) {
     if (sharedError) {
       return (
@@ -3624,7 +3844,8 @@ const deleteProject = (id) => {
     return (
       <div className="min-h-screen bg-slate-100">
         <div className="border-b border-slate-200 bg-slate-900 px-4 py-3 text-center text-xs text-slate-300">
-          🔗 Read-only shared view — <a href="/" className="underline hover:text-white">go to Bible Study Project</a>
+          🔗 Read-only shared view —{' '}
+          <a href="/" className="underline hover:text-white">go to Bible Study Project</a>
         </div>
         <iframe
           title="Shared study"
@@ -3636,9 +3857,6 @@ const deleteProject = (id) => {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Auth gate — shown when the server is reachable but no session is present
-  // ---------------------------------------------------------------------------
   if (authUser === undefined && !authServerDown) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-900">
@@ -3647,2839 +3865,15 @@ const deleteProject = (id) => {
     );
   }
 
-  if (authUser === null && !authServerDown) {
-    const submitAuth = async (e) => {
-      e.preventDefault();
-      setAuthError('');
-      setAuthBusy(true);
-      const action = authMode === 'login' ? loginUser : registerUser;
-      const result = await action(authForm.email.trim(), authForm.password);
-      setAuthBusy(false);
-      if (!result.ok) {
-        setAuthError(result.error ?? 'Something went wrong.');
-        return;
-      }
-      if (result.data?.mfaRequired) {
-        setAuthMfaPending(true);
-        return;
-      }
-      setAuthUser(result.data);
-      setProjectIndex(switchStorageUser(result.data.id));
-    };
-
-    const submitMfa = async (e) => {
-      e.preventDefault();
-      setAuthError('');
-      setAuthBusy(true);
-      const result = await verifyMfaLogin(
-        authMfaUseBackup ? { backupCode: authMfaCode.trim() } : { token: authMfaCode.trim() },
-      );
-      setAuthBusy(false);
-      if (!result.ok) {
-        setAuthError(result.error ?? 'Invalid code.');
-        return;
-      }
-      setAuthMfaPending(false);
-      setAuthMfaCode('');
-      setAuthUser(result.data);
-      setProjectIndex(switchStorageUser(result.data.id));
-    };
-
-    if (authMfaPending) {
-      return (
-        <div className="flex min-h-screen items-center justify-center bg-slate-900 px-4">
-          <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-white p-8 shadow-panel">
-            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Bible Study Project</p>
-            <h1 className="mt-2 text-xl font-semibold text-slate-900">Two-factor verification</h1>
-            <p className="mt-2 text-sm text-slate-500">
-              {authMfaUseBackup
-                ? 'Enter one of your saved backup codes.'
-                : 'Enter the 6-digit code from your authenticator app.'}
-            </p>
-            <form onSubmit={submitMfa} className="mt-6 space-y-4">
-              <input
-                type="text"
-                required
-                autoFocus
-                inputMode={authMfaUseBackup ? 'text' : 'numeric'}
-                placeholder={authMfaUseBackup ? 'xxxxxxxxxx' : '123456'}
-                value={authMfaCode}
-                onChange={(e) => setAuthMfaCode(e.target.value)}
-                className="block w-full rounded-xl border border-slate-300 px-3 py-2 text-center text-lg tracking-widest shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-              />
-              {authError && <p className="text-sm text-rose-600">{authError}</p>}
-              <button
-                type="submit"
-                disabled={authBusy}
-                className="w-full rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                {authBusy ? 'Verifying…' : 'Verify'}
-              </button>
-            </form>
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMfaUseBackup((v) => !v);
-                setAuthMfaCode('');
-                setAuthError('');
-              }}
-              className="mt-4 w-full text-center text-sm text-slate-500 underline hover:text-slate-700"
-            >
-              {authMfaUseBackup ? 'Use your authenticator app instead' : "Lost your device? Use a backup code"}
-            </button>
-            <button
-              type="button"
-              onClick={async () => {
-                await logoutUser();
-                setAuthMfaPending(false);
-                setAuthMfaCode('');
-                setAuthError('');
-              }}
-              className="mt-2 w-full text-center text-sm text-slate-400 underline hover:text-slate-600"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-900 px-4 py-12">
-        <div className="grid w-full max-w-5xl items-center gap-16 lg:grid-cols-2">
-          {/* Branding / feature panel — hidden on small screens to keep the form front and center there */}
-          <div className="hidden lg:block">
-            <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Bible Study Project</p>
-            <h1 className="mt-4 text-3xl font-semibold leading-tight text-white">
-              Deep Bible study,<br />organized chunk by chunk.
-            </h1>
-            <p className="mt-4 max-w-sm text-slate-300">
-              Split any passage into chunks and work through Observation, Interpretation, and
-              Application notes alongside Greek &amp; Hebrew word studies, cross-references, and commentary.
-            </p>
-            <ul className="mt-8 space-y-4 text-sm text-slate-300">
-              <li className="flex items-center gap-3"><span className="text-lg">📖</span> Chunk-by-chunk OIA notes on any passage</li>
-              <li className="flex items-center gap-3"><span className="text-lg">🔤</span> Greek &amp; Hebrew word studies with pronunciation</li>
-              <li className="flex items-center gap-3"><span className="text-lg">🔗</span> Cross-references and commentary, one click away</li>
-              <li className="flex items-center gap-3"><span className="text-lg">🎙</span> Turn your notes into a podcast-ready script</li>
-              <li className="flex items-center gap-3"><span className="text-lg">🔒</span> Your studies stay private to your account, with optional 2FA</li>
-            </ul>
-            <blockquote className="mt-8 border-l-2 border-slate-700 pl-4 text-sm italic text-slate-400">
-              "Make every effort to present yourself approved to God, an unashamed workman who accurately
-              handles the word of truth."
-              <footer className="mt-1 not-italic text-slate-500">— 2 Timothy 2:15 (BSB)</footer>
-            </blockquote>
-          </div>
-
-          {/* Sign in / register form */}
-          <div className="flex justify-center lg:justify-start">
-          <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-white p-8 shadow-panel">
-            <p className="text-sm uppercase tracking-[0.24em] text-slate-400 lg:hidden">Bible Study Project</p>
-            <h1 className="mt-2 text-xl font-semibold text-slate-900">
-              {authMode === 'login' ? 'Sign in' : 'Create an account'}
-            </h1>
-            <form onSubmit={submitAuth} className="mt-6 space-y-4">
-              <label className="block text-sm font-medium text-slate-700">
-                Email
-                <input
-                  type="email"
-                  required
-                  autoComplete="email"
-                  value={authForm.email}
-                  onChange={(e) => setAuthForm((f) => ({ ...f, email: e.target.value }))}
-                  className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                />
-              </label>
-              <label className="block text-sm font-medium text-slate-700">
-                Password
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
-                  value={authForm.password}
-                  onChange={(e) => setAuthForm((f) => ({ ...f, password: e.target.value }))}
-                  className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                />
-              </label>
-              {authError && <p className="text-sm text-rose-600">{authError}</p>}
-              <button
-                type="submit"
-                disabled={authBusy}
-                className="w-full rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                {authBusy ? 'Please wait…' : authMode === 'login' ? 'Sign in' : 'Create account'}
-              </button>
-            </form>
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMode((m) => (m === 'login' ? 'register' : 'login'));
-                setAuthError('');
-              }}
-              className="mt-4 w-full text-center text-sm text-slate-500 underline hover:text-slate-700"
-            >
-              {authMode === 'login' ? "Need an account? Sign up" : 'Already have an account? Sign in'}
-            </button>
-          </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // ADMIN PAGE — restricted to the designated admin account (server-enforced)
-  // ---------------------------------------------------------------------------
-  if (currentPage === 'admin' && authUser?.isAdmin) {
-    const handleDeleteUserAdmin = async (id, email) => {
-      if (!window.confirm(`Delete account "${email}"? Their projects are kept, not deleted, but become inaccessible until reassigned.`)) return;
-      const result = await adminDeleteUser(id);
-      if (result.ok) loadAdminData();
-      else alert(result.error ?? 'Failed to delete user.');
-    };
-
-    const handleDeleteProjectAdmin = async (id, title) => {
-      if (!window.confirm(`Permanently delete project "${title}"? This cannot be undone.`)) return;
-      const result = await adminDeleteProject(id);
-      if (result.ok) loadAdminData();
-      else alert(result.error ?? 'Failed to delete project.');
-    };
-
-    const handleViewProjectAdmin = async (id) => {
-      const result = await adminGetProject(id);
-      if (result.ok) setAdminViewProject(result.data);
-      else alert(result.error ?? 'Failed to load project.');
-    };
-
-    const handleResetPasswordAdmin = async (id, email) => {
-      if (!window.confirm(`Reset the password for "${email}"? They'll be signed out everywhere and need the new temporary password to log back in.`)) return;
-      const result = await adminResetPassword(id);
-      if (result.ok) setAdminResetResult({ email, temporaryPassword: result.data.temporaryPassword });
-      else alert(result.error ?? 'Failed to reset password.');
-    };
-
-    return (
-      <div className="min-h-screen bg-slate-50 text-slate-900">
-        <header className="border-b border-slate-200 bg-slate-900 text-white shadow-sm">
-          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
-            <div>
-              <p className="text-sm uppercase tracking-[0.24em] text-slate-300">Bible Study Project</p>
-              <h1 className="mt-2 text-2xl font-semibold">🛡 Admin</h1>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={goHome}
-                className="rounded-xl border border-slate-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
-              >
-                ← Back
-              </button>
-              {authStatus}
-            </div>
-          </div>
-        </header>
-
-        <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
-          <div className="flex gap-2">
-            <button type="button" onClick={() => setAdminTab('users')}
-              className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${adminTab === 'users' ? 'bg-slate-900 text-white' : 'border border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}`}>
-              Users ({adminUsers.length})
-            </button>
-            <button type="button" onClick={() => setAdminTab('projects')}
-              className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${adminTab === 'projects' ? 'bg-slate-900 text-white' : 'border border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}`}>
-              Projects ({adminProjects.length})
-            </button>
-          </div>
-
-          {adminLoading && <p className="text-sm text-slate-500">Loading…</p>}
-          {adminError && <p className="text-sm text-rose-600">{adminError}</p>}
-
-          {!adminLoading && !adminError && adminTab === 'users' && (
-            <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-panel">
-              <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] text-sm">
-                <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Email</th>
-                    <th className="px-4 py-3">Joined</th>
-                    <th className="px-4 py-3">2FA</th>
-                    <th className="px-4 py-3">Projects</th>
-                    <th className="px-4 py-3"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {adminUsers.map((u) => (
-                    <tr key={u.id} className="border-t border-slate-100">
-                      <td className="px-4 py-3 font-medium text-slate-800">
-                        {u.email}{u.id === authUser.id && <span className="ml-2 text-xs font-normal text-slate-400">(you)</span>}
-                      </td>
-                      <td className="px-4 py-3 text-slate-500">{new Date(u.createdAt).toLocaleDateString()}</td>
-                      <td className="px-4 py-3 text-slate-500">{u.totpEnabled ? '✓' : '—'}</td>
-                      <td className="px-4 py-3 text-slate-500">{u.projectCount}</td>
-                      <td className="px-4 py-3 text-right">
-                        {u.id !== authUser.id && (
-                          <div className="flex justify-end gap-2">
-                            <button type="button" onClick={() => handleResetPasswordAdmin(u.id, u.email)}
-                              className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50">
-                              Reset Password
-                            </button>
-                            <button type="button" onClick={() => handleDeleteUserAdmin(u.id, u.email)}
-                              className="rounded-lg border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50">
-                              Delete
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
-            </div>
-          )}
-
-          {!adminLoading && !adminError && adminTab === 'projects' && (
-            <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-panel">
-              <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-sm">
-                <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Title</th>
-                    <th className="px-4 py-3">Owner</th>
-                    <th className="px-4 py-3">Passage</th>
-                    <th className="px-4 py-3">Last edited</th>
-                    <th className="px-4 py-3">Shared</th>
-                    <th className="px-4 py-3"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {adminProjects.map((p) => (
-                    <tr key={p.id} className="border-t border-slate-100">
-                      <td className="px-4 py-3 font-medium text-slate-800">{p.title}</td>
-                      <td className="px-4 py-3 text-slate-500">
-                        {p.ownerEmail ?? <span className="italic text-slate-400">orphaned</span>}
-                      </td>
-                      <td className="px-4 py-3 text-slate-500">{p.chapterSummary}</td>
-                      <td className="px-4 py-3 text-slate-500">{new Date(p.lastEdited).toLocaleDateString()}</td>
-                      <td className="px-4 py-3 text-slate-500">{p.shareToken ? '🔗' : '—'}</td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex justify-end gap-2">
-                          <button type="button" onClick={() => handleViewProjectAdmin(p.id)}
-                            className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50">
-                            View
-                          </button>
-                          <button type="button" onClick={() => handleDeleteProjectAdmin(p.id, p.title)}
-                            className="rounded-lg border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50">
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
-            </div>
-          )}
-        </main>
-
-        {adminViewProject && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setAdminViewProject(null)}>
-            <div className="h-full w-full max-w-4xl overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-                <p className="text-sm font-semibold text-slate-700">{adminViewProject.title}</p>
-                <button type="button" onClick={() => setAdminViewProject(null)}
-                  className="rounded-lg border border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50">
-                  Close
-                </button>
-              </div>
-              <iframe
-                title="Project preview"
-                srcDoc={buildExportHtml(adminViewProject)}
-                sandbox="allow-popups"
-                className="h-[calc(100%-3rem)] w-full border-0"
-              />
-            </div>
-          </div>
-        )}
-
-        {adminResetResult && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-            <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
-              <h3 className="text-sm font-semibold text-slate-900">Password reset</h3>
-              <p className="mt-1 text-xs text-slate-500">
-                Relay this to <span className="font-medium text-slate-700">{adminResetResult.email}</span> yourself
-                (text, call, in person) — it won't be shown again. They're signed out everywhere until they log in with it.
-              </p>
-              <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-center font-mono text-lg tracking-wider text-amber-800">
-                {adminResetResult.temporaryPassword}
-              </p>
-              <button type="button" onClick={() => setAdminResetResult(null)}
-                className="mt-4 w-full rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-400">
-                Done
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // SETTINGS PAGE
-  // ---------------------------------------------------------------------------
-  if (currentPage === 'settings' && authUser) {
-    const startSetup = async () => {
-      setMfaSetupError('');
-      setMfaSetupBusy(true);
-      const result = await startMfaSetup();
-      setMfaSetupBusy(false);
-      if (!result.ok) {
-        setMfaSetupError(result.error ?? 'Could not start 2FA setup.');
-        return;
-      }
-      setMfaSetup(result.data);
-      setMfaSetupCode('');
-    };
-
-    const confirmSetup = async (e) => {
-      e.preventDefault();
-      setMfaSetupError('');
-      setMfaSetupBusy(true);
-      const result = await confirmMfaSetup(mfaSetupCode.trim());
-      setMfaSetupBusy(false);
-      if (!result.ok) {
-        setMfaSetupError(result.error ?? 'Invalid code.');
-        return;
-      }
-      setMfaSetup(null);
-      setMfaSetupCode('');
-      setMfaBackupCodes(result.data.backupCodes);
-      setAuthUser((u) => ({ ...u, totpEnabled: true }));
-    };
-
-    const cancelSetup = () => {
-      setMfaSetup(null);
-      setMfaSetupCode('');
-      setMfaSetupError('');
-    };
-
-    const submitDisable = async (e) => {
-      e.preventDefault();
-      setMfaDisableError('');
-      const result = await disableMfa(mfaDisablePassword);
-      if (!result.ok) {
-        setMfaDisableError(result.error ?? 'Incorrect password.');
-        return;
-      }
-      setMfaDisablePassword('');
-      setAuthUser((u) => ({ ...u, totpEnabled: false }));
-    };
-
-    const submitChangePassword = async (e) => {
-      e.preventDefault();
-      setChangePasswordError('');
-      if (changePasswordForm.next !== changePasswordForm.confirm) {
-        setChangePasswordError('New passwords don\'t match.');
-        return;
-      }
-      setChangePasswordBusy(true);
-      const result = await changePassword(changePasswordForm.current, changePasswordForm.next);
-      setChangePasswordBusy(false);
-      if (!result.ok) {
-        setChangePasswordError(result.error ?? 'Failed to change password.');
-        return;
-      }
-      setChangePasswordForm({ current: '', next: '', confirm: '' });
-      setChangePasswordSaved(true);
-      window.setTimeout(() => setChangePasswordSaved(false), 3000);
-    };
-
-    const submitPodcastName = async (e) => {
-      e.preventDefault();
-      setPodcastNameSaving(true);
-      setPodcastNameSaved(false);
-      const result = await updateProfile({ podcastName: podcastNameInput.trim() });
-      setPodcastNameSaving(false);
-      if (!result.ok) return;
-      setAuthUser((u) => ({ ...u, podcastName: result.data.podcastName }));
-      setPodcastNameSaved(true);
-      window.setTimeout(() => setPodcastNameSaved(false), 2500);
-    };
-
-    return (
-      <div className="min-h-screen bg-slate-50 text-slate-900">
-        <header className="border-b border-slate-200 bg-slate-900 text-white shadow-sm">
-          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
-            <div>
-              <p className="text-sm uppercase tracking-[0.24em] text-slate-300">Bible Study Project</p>
-              <h1 className="mt-2 text-2xl font-semibold">Account Settings</h1>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={goHome}
-                className="rounded-xl border border-slate-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
-              >
-                ← Back
-              </button>
-              {authStatus}
-            </div>
-          </div>
-        </header>
-
-        <main className="mx-auto max-w-2xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
-          <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-panel space-y-2">
-            <h2 className="text-lg font-semibold text-slate-900">Account</h2>
-            <p className="text-sm text-slate-500">
-              Signed in as <span className="font-medium text-slate-700">{authUser.email}</span>
-            </p>
-          </section>
-
-          <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-panel space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">Change password</h2>
-              <p className="text-sm text-slate-500">Changing your password signs you out of every other device — this one stays signed in.</p>
-            </div>
-            <form onSubmit={submitChangePassword} className="space-y-3">
-              <label className="block text-sm font-medium text-slate-700">
-                Current password
-                <input
-                  type="password"
-                  required
-                  autoComplete="current-password"
-                  value={changePasswordForm.current}
-                  onChange={(e) => setChangePasswordForm((f) => ({ ...f, current: e.target.value }))}
-                  className="mt-1 block w-full max-w-xs rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                />
-              </label>
-              <label className="block text-sm font-medium text-slate-700">
-                New password
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  autoComplete="new-password"
-                  value={changePasswordForm.next}
-                  onChange={(e) => setChangePasswordForm((f) => ({ ...f, next: e.target.value }))}
-                  className="mt-1 block w-full max-w-xs rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                />
-              </label>
-              <label className="block text-sm font-medium text-slate-700">
-                Confirm new password
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  autoComplete="new-password"
-                  value={changePasswordForm.confirm}
-                  onChange={(e) => setChangePasswordForm((f) => ({ ...f, confirm: e.target.value }))}
-                  className="mt-1 block w-full max-w-xs rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                />
-              </label>
-              {changePasswordError && <p className="text-sm text-rose-600">{changePasswordError}</p>}
-              {changePasswordSaved && <p className="text-sm text-emerald-600">Password changed.</p>}
-              <button
-                type="submit"
-                disabled={changePasswordBusy}
-                className="rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                {changePasswordBusy ? 'Saving…' : 'Change password'}
-              </button>
-            </form>
-          </section>
-
-          <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-panel space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">Podcast / show name</h2>
-              <p className="text-sm text-slate-500">
-                Only needed if you use "🎙 Prepare for Podcast" on the study page — it fills in your show's
-                name when asking Claude to write an episode script. Leave blank if you're just doing personal
-                study; that button still works, it just won't name a specific show.
-              </p>
-            </div>
-            <form onSubmit={submitPodcastName} className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <input
-                type="text"
-                value={podcastNameInput}
-                onChange={(e) => setPodcastNameInput(e.target.value)}
-                placeholder="e.g. Verse by Verse with Nate: A Journey Through Scripture"
-                className="w-full flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-              />
-              <button
-                type="submit"
-                disabled={podcastNameSaving}
-                className="rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                {podcastNameSaving ? 'Saving…' : 'Save'}
-              </button>
-            </form>
-            {podcastNameSaved && <p className="text-sm text-emerald-600">Saved.</p>}
-          </section>
-
-          <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-panel space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">Two-factor authentication</h2>
-              <p className="text-sm text-slate-500">
-                {authUser.totpEnabled
-                  ? "Enabled — you'll need a code from your authenticator app to sign in."
-                  : 'Add a 6-digit code from an authenticator app (Google Authenticator, Authy, 1Password, etc.) as a second step at sign-in.'}
-              </p>
-            </div>
-
-            {mfaBackupCodes ? (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3">
-                <p className="text-sm font-semibold text-amber-800">
-                  Save these backup codes now — each works once if you ever lose your device. They won't be shown again.
-                </p>
-                <div className="grid grid-cols-2 gap-2 font-mono text-sm text-slate-800">
-                  {mfaBackupCodes.map((code) => (
-                    <div key={code} className="rounded-lg border border-amber-200 bg-white px-3 py-1.5">{code}</div>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setMfaBackupCodes(null)}
-                  className="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-amber-400"
-                >
-                  I've saved these codes
-                </button>
-              </div>
-            ) : authUser.totpEnabled ? (
-              <form onSubmit={submitDisable} className="space-y-3">
-                <label className="block max-w-xs text-sm font-medium text-slate-700">
-                  Enter your password to disable 2FA
-                  <input
-                    type="password"
-                    required
-                    value={mfaDisablePassword}
-                    onChange={(e) => setMfaDisablePassword(e.target.value)}
-                    className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                  />
-                </label>
-                {mfaDisableError && <p className="text-sm text-rose-600">{mfaDisableError}</p>}
-                <button
-                  type="submit"
-                  className="rounded-md bg-rose-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-rose-400"
-                >
-                  Disable 2FA
-                </button>
-              </form>
-            ) : mfaSetup ? (
-              <form onSubmit={confirmSetup} className="space-y-4">
-                <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
-                  <img src={mfaSetup.qrCodeDataUrl} alt="2FA QR code" className="h-40 w-40 rounded-xl border border-slate-200" />
-                  <div className="space-y-1 text-sm text-slate-600">
-                    <p>Scan this with your authenticator app, or enter the code manually:</p>
-                    <p className="break-all rounded-lg bg-slate-100 px-2 py-1 font-mono text-xs">{mfaSetup.secret}</p>
-                  </div>
-                </div>
-                <label className="block max-w-xs text-sm font-medium text-slate-700">
-                  Enter the 6-digit code it shows
-                  <input
-                    type="text"
-                    required
-                    inputMode="numeric"
-                    placeholder="123456"
-                    value={mfaSetupCode}
-                    onChange={(e) => setMfaSetupCode(e.target.value)}
-                    className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2 text-center text-lg tracking-widest shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                  />
-                </label>
-                {mfaSetupError && <p className="text-sm text-rose-600">{mfaSetupError}</p>}
-                <div className="flex gap-3">
-                  <button
-                    type="submit"
-                    disabled={mfaSetupBusy}
-                    className="rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-300"
-                  >
-                    {mfaSetupBusy ? 'Verifying…' : 'Confirm & enable'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={cancelSetup}
-                    className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <div className="space-y-2">
-                <button
-                  type="button"
-                  onClick={startSetup}
-                  disabled={mfaSetupBusy}
-                  className="rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {mfaSetupBusy ? 'Starting…' : 'Enable 2FA'}
-                </button>
-                {mfaSetupError && <p className="text-sm text-rose-600">{mfaSetupError}</p>}
-              </div>
-            )}
-          </section>
-        </main>
-      </div>
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // HOME PAGE
-  // ---------------------------------------------------------------------------
-  if (currentPage === 'home') {
-    return (
-      <div className="min-h-screen bg-slate-50 text-slate-900">
-        <header className="border-b border-slate-200 bg-slate-900 text-white shadow-sm">
-          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6 lg:px-8">
-            <div>
-              <p className="text-sm uppercase tracking-[0.24em] text-slate-300">Bible Study Project</p>
-              <h1 className="mt-1 text-2xl font-semibold">My Studies</h1>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={openBibleReader}
-                className="rounded-xl border border-slate-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
-              >
-                📖 Read Bible
-              </button>
-              <button
-                type="button"
-                onClick={openImportProject}
-                className="rounded-xl border border-slate-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
-              >
-                <span className="hidden sm:inline">📥 Import Session List</span>
-                <span className="sm:hidden">📥 Import</span>
-              </button>
-              <button
-                type="button"
-                onClick={openNewProject}
-                className="rounded-xl bg-slate-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-600"
-              >
-                + New Project
-              </button>
-              {authStatus}
-            </div>
-          </div>
-        </header>
-        <main className="mx-auto max-w-7xl px-4 py-4 sm:py-8 sm:px-6 lg:px-8">
-          {autoRestoredCount !== null && (
-            <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-              <p className="text-sm font-semibold text-emerald-800">
-                📥 Synced {autoRestoredCount} project{autoRestoredCount > 1 ? 's' : ''} from another device.
-              </p>
-            </div>
-          )}
-          {staleLocalProjects.length > 0 && (
-            <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-              <p className="mb-3 text-sm font-semibold text-amber-800">
-                ☁️ {staleLocalProjects.length} project{staleLocalProjects.length > 1 ? 's have' : ' has'} a newer version on the server:
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {staleLocalProjects.map((entry) => (
-                  <button
-                    key={entry.id}
-                    type="button"
-                    onClick={() => pullLatestFromServer(entry.id)}
-                    className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-600"
-                  >
-                    Pull latest "{entry.title}"
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {projectIndex.length === 0 ? (
-            <div className="mx-auto max-w-xl rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center shadow-panel">
-              <p className="text-lg font-semibold text-slate-700">No projects yet</p>
-              <p className="mt-2 text-sm text-slate-500">Start a new Bible study to get going.</p>
-              <button
-                type="button"
-                onClick={openNewProject}
-                className="mt-6 rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
-              >
-                + New Project
-              </button>
-            </div>
-          ) : (
-            <>
-              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <input
-                  type="text"
-                  value={homeSearch}
-                  onChange={(e) => setHomeSearch(e.target.value)}
-                  placeholder="Search projects by title or passage…"
-                  className="w-full max-w-sm rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                />
-                <label className="text-sm text-slate-600">
-                  Sort by{' '}
-                  <select
-                    value={homeSort}
-                    onChange={(e) => setHomeSort(e.target.value)}
-                    className="ml-1 rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                  >
-                    <option value="recent">Last edited</option>
-                    <option value="title">Title</option>
-                    <option value="passage">Passage</option>
-                  </select>
-                </label>
-                {(() => {
-                  const allTags = Array.from(
-                    new Set(projectIndex.flatMap((entry) => entry.tags ?? [])),
-                  ).sort((a, b) => a.localeCompare(b));
-                  if (allTags.length === 0) return null;
-                  return (
-                    <label className="text-sm text-slate-600">
-                      Tag{' '}
-                      <select
-                        value={homeTagFilter}
-                        onChange={(e) => setHomeTagFilter(e.target.value)}
-                        className="ml-1 rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                      >
-                        <option value="">All tags</option>
-                        {allTags.map((tag) => (
-                          <option key={tag} value={tag}>{tag}</option>
-                        ))}
-                      </select>
-                    </label>
-                  );
-                })()}
-              </div>
-              <div className="mb-4 flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-6 shadow-panel sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex-1">
-                  <h3 className="text-base font-semibold text-slate-900">Listen to BSB Audio</h3>
-                  <p className="mt-1 text-sm text-slate-600">
-                    {audioState.status === 'idle' || audioState.status === 'error'
-                      ? 'Play a full book of the Berean Standard Bible.'
-                      : `Playing ${bookOptions.find((b) => b.abbrev === audioBook)?.name} — chapter ${audioState.chapter} of ${audioState.total}`}
-                  </p>
-                  {audioState.status === 'error' && (
-                    <p className="mt-1 text-sm text-rose-600">Couldn't load audio for this book/narrator.</p>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    value={audioBook}
-                    onChange={(e) => setAudioBook(e.target.value)}
-                    disabled={audioState.status === 'playing' || audioState.status === 'paused'}
-                    className="rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:opacity-60"
-                  >
-                    {bookOptions.map((book) => (
-                      <option key={book.abbrev} value={book.abbrev}>{book.name}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={audioNarrator}
-                    onChange={(e) => setAudioNarrator(e.target.value)}
-                    disabled={audioState.status === 'playing' || audioState.status === 'paused'}
-                    className="rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:opacity-60"
-                  >
-                    <option value="david">David</option>
-                    <option value="hays">Hays</option>
-                    <option value="souer">Souer</option>
-                  </select>
-                  {audioState.status === 'playing' || audioState.status === 'paused' ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={handleToggleBookAudioPause}
-                        className="rounded-xl bg-sky-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-sky-500"
-                      >
-                        {audioState.status === 'paused' ? 'Resume' : 'Pause'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleStopBookAudio}
-                        className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-                      >
-                        Stop
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handlePlayBookAudio}
-                      className="rounded-xl bg-sky-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-sky-500"
-                    >
-                      Play book
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {projectIndex
-                .slice()
-                .filter((entry) => {
-                  if (homeTagFilter && !(entry.tags ?? []).includes(homeTagFilter)) return false;
-                  const q = homeSearch.trim().toLowerCase();
-                  if (!q) return true;
-                  return entry.title?.toLowerCase().includes(q)
-                    || entry.chapterSummary?.toLowerCase().includes(q);
-                })
-                .sort((a, b) => {
-                  if (homeSort === 'title') return (a.title ?? '').localeCompare(b.title ?? '');
-                  if (homeSort === 'passage') return (a.chapterSummary ?? '').localeCompare(b.chapterSummary ?? '');
-                  return (b.lastEdited ?? 0) - (a.lastEdited ?? 0);
-                })
-                .map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-panel"
-                  >
-                    <div className="flex-1">
-                      {renamingId === entry.id ? (
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="text"
-                            autoFocus
-                            value={renameValue}
-                            onChange={(e) => setRenameValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                const trimmed = renameValue.trim();
-                                if (trimmed) renameProjectInStorage(entry.id, trimmed);
-                                setRenamingId(null);
-                              } else if (e.key === 'Escape') {
-                                setRenamingId(null);
-                              }
-                            }}
-                            className="flex-1 rounded-lg border border-slate-300 px-2 py-1 text-base font-semibold text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const trimmed = renameValue.trim();
-                              if (trimmed) renameProjectInStorage(entry.id, trimmed);
-                              setRenamingId(null);
-                            }}
-                            className="text-sm font-semibold text-emerald-600 hover:text-emerald-700"
-                          >
-                            Save
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setRenamingId(null)}
-                            className="text-sm text-slate-400 hover:text-slate-600"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-start justify-between gap-2">
-                          <h2 className="text-base font-semibold text-slate-900">{entry.title}</h2>
-                          <button
-                            type="button"
-                            onClick={() => { setRenamingId(entry.id); setRenameValue(entry.title ?? ''); }}
-                            className="shrink-0 text-xs text-slate-400 hover:text-slate-600"
-                            title="Rename project"
-                          >
-                            ✎ Rename
-                          </button>
-                        </div>
-                      )}
-                      {entry.chapterSummary && (
-                        <p className="mt-1 text-sm text-slate-500">{entry.chapterSummary}</p>
-                      )}
-                      {entry.tags?.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {entry.tags.map((tag) => (
-                            <span key={tag} className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-700">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      <p className="mt-1 text-xs text-slate-400">{formatRelativeDate(entry.lastEdited)}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => resumeProject(entry.id)}
-                        className="flex-1 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-                      >
-                        Resume
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => deleteProject(entry.id)}
-                        className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </main>
-      </div>
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // BIBLE READER PAGE (plain read-only browsing)
-  // ---------------------------------------------------------------------------
-  if (currentPage === 'reader') {
-    const readerBook = bookOptions.find((b) => b.abbrev === readerBookAbbrev);
-    const bookmarkEntries = Object.entries(readerBookmarks).map(([key, color]) => {
-      const [bAbbrev, chapterStr, verseStr] = key.split('-');
-      const bookIndex = bookOptions.findIndex((b) => b.abbrev === bAbbrev);
-      return {
-        key, color,
-        bookAbbrev: bAbbrev,
-        bookName: bookOptions[bookIndex]?.name ?? bAbbrev,
-        chapter: Number(chapterStr),
-        verse: Number(verseStr),
-        bookIndex,
-      };
-    }).sort((a, b) => a.bookIndex - b.bookIndex || a.chapter - b.chapter || a.verse - b.verse);
-    return (
-      <div className="min-h-screen bg-slate-50 text-slate-900">
-        <header className="border-b border-slate-200 bg-slate-900 text-white shadow-sm">
-          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
-            <div>
-              <p className="text-sm uppercase tracking-[0.24em] text-slate-300">Bible Study Project</p>
-              <h1 className="mt-2 text-2xl font-semibold">Read the Bible (BSB)</h1>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={goHome}
-                className="rounded-xl border border-slate-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
-              >
-                ← Back to Studies
-              </button>
-              {authStatus}
-            </div>
-          </div>
-        </header>
-        <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
-          {/* Navigation + tools bar */}
-          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-panel">
-            <label className="text-sm text-slate-600">
-              Book{' '}
-              <select
-                value={readerBookAbbrev}
-                onChange={(e) => handleReaderBookChange(e.target.value)}
-                className="ml-1 rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-              >
-                {bookOptions.map((b) => (
-                  <option key={b.abbrev} value={b.abbrev}>{b.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="text-sm text-slate-600">
-              Chapter{' '}
-              <select
-                value={readerChapter}
-                onChange={(e) => { setReaderChapter(Number(e.target.value)); setReaderSelectedVerse(null); setReaderCrossRefs(null); setReaderSearch(''); setReaderSearchActive(false); }}
-                className="ml-1 rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-              >
-                {Array.from({ length: readerTotalChapters }, (_, i) => i + 1).map((num) => (
-                  <option key={num} value={num}>{num}</option>
-                ))}
-              </select>
-            </label>
-            <div className="ml-auto flex items-center gap-2">
-              <button type="button" onClick={readerGoToPreviousChapter} disabled={readerChapter <= 1}
-                className="rounded-xl border border-slate-300 bg-white px-4 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
-                ‹ Prev
-              </button>
-              <button type="button" onClick={readerGoToNextChapter} disabled={readerChapter >= readerTotalChapters}
-                className="rounded-xl border border-slate-300 bg-white px-4 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
-                Next ›
-              </button>
-            </div>
-          </div>
-
-          {/* Tool strip: font size · cross-refs · search */}
-          <div className="mb-4 flex flex-wrap items-center gap-2 rounded-3xl border border-slate-200 bg-white px-4 py-3 shadow-panel">
-            {/* Font size */}
-            <span className="text-xs text-slate-500 mr-1">Text size</span>
-            {[['S', 0.875], ['M', 1], ['L', 1.125], ['XL', 1.25]].map(([label, size]) => (
-              <button key={label} type="button"
-                onClick={() => setReaderFontSize(size)}
-                className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${readerFontSize === size ? 'bg-slate-900 text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
-                {label}
-              </button>
-            ))}
-            <div className="mx-2 h-4 w-px bg-slate-200" />
-            {/* Cross-refs toggle */}
-            <button type="button"
-              onClick={() => { setReaderShowCrossRefs((v) => !v); if (!readerShowCrossRefs) loadReaderCrossRefs(readerBookAbbrev, readerChapter); }}
-              className={`rounded-lg px-3 py-1 text-xs font-semibold transition ${readerShowCrossRefs ? 'bg-amber-100 text-amber-800' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
-              {readerCrossRefsLoading ? 'Loading refs…' : '🔗 Cross-Refs'}
-            </button>
-            <div className="mx-2 h-4 w-px bg-slate-200" />
-            {/* Bookmarks panel */}
-            <div className="relative">
-              <button type="button"
-                onClick={() => setReaderBookmarksPanelOpen((v) => !v)}
-                className={`flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-semibold transition ${readerBookmarksPanelOpen ? 'bg-sky-100 text-sky-800' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
-                <BookmarkIcon filled={bookmarkEntries.length > 0} />
-                Bookmarks{bookmarkEntries.length > 0 ? ` (${bookmarkEntries.length})` : ''}
-              </button>
-              {readerBookmarksPanelOpen && (
-                <div className="absolute left-0 top-full z-20 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
-                  {bookmarkEntries.length === 0 ? (
-                    <p className="p-2 text-sm text-slate-500">
-                      No bookmarks yet. Tap the bookmark icon next to any verse to save it here.
-                    </p>
-                  ) : (
-                    <div className="max-h-80 space-y-1 overflow-y-auto">
-                      {bookmarkEntries.map((entry) => (
-                        <div key={entry.key} className="flex items-center gap-2 rounded-xl px-2 py-1.5 hover:bg-slate-50">
-                          <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: entry.color }} />
-                          <button type="button"
-                            onClick={() => jumpToReaderVerse(entry.bookAbbrev, entry.chapter, entry.verse)}
-                            className="flex-1 truncate text-left text-sm font-medium text-slate-700 hover:text-sky-700">
-                            {entry.bookName} {entry.chapter}:{entry.verse}
-                          </button>
-                          <button type="button"
-                            onClick={() => toggleReaderBookmark(entry.key)}
-                            title="Remove bookmark"
-                            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-rose-600">
-                            ✕
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="mx-2 h-4 w-px bg-slate-200" />
-            {/* Search — this chapter or the whole Bible */}
-            {readerSearchActive ? (
-              <div className="flex items-center gap-1">
-                <div className="flex overflow-hidden rounded-lg border border-slate-300">
-                  <button type="button"
-                    onClick={() => setReaderSearchScope('chapter')}
-                    className={`px-2 py-1 text-xs font-semibold transition ${readerSearchScope === 'chapter' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
-                    This chapter
-                  </button>
-                  <button type="button"
-                    onClick={() => { setReaderSearchScope('bible'); if (bibleIndexStatus === 'idle') loadBibleIndex(); }}
-                    className={`px-2 py-1 text-xs font-semibold transition ${readerSearchScope === 'bible' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
-                    Whole Bible
-                  </button>
-                </div>
-                <input
-                  autoFocus
-                  type="text"
-                  value={readerSearch}
-                  onChange={(e) => setReaderSearch(e.target.value)}
-                  placeholder={readerSearchScope === 'bible' ? 'Search the whole Bible…' : 'Search this chapter…'}
-                  className="rounded-xl border border-slate-300 bg-slate-50 px-3 py-1 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                />
-                <button type="button" onClick={() => { setReaderSearch(''); setReaderSearchActive(false); }}
-                  className="rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50">✕</button>
-              </div>
-            ) : (
-              <button type="button" onClick={() => setReaderSearchActive(true)}
-                className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50">
-                🔍 Search
-              </button>
-            )}
-          </div>
-
-          {/* Whole-Bible search results */}
-          {readerSearchActive && readerSearchScope === 'bible' && (
-            <div className="mb-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-panel">
-              {bibleIndexStatus === 'loading' && (
-                <p className="text-sm text-slate-500">Loading the full Bible for search — this happens once per visit (~7MB)…</p>
-              )}
-              {bibleIndexStatus === 'error' && (
-                <p className="text-sm text-rose-600">Couldn't load the full Bible for search. <button type="button" onClick={loadBibleIndex} className="underline">Try again</button></p>
-              )}
-              {bibleIndexStatus === 'ready' && (() => {
-                const q = readerSearch.trim().toLowerCase();
-                if (!q) return <p className="text-sm text-slate-500">Type at least a word to search all 66 books.</p>;
-                const index = _bibleIndexCacheRef.current.BSB ?? [];
-                const matches = index.filter((v) => v.text.toLowerCase().includes(q));
-                if (matches.length === 0) return <p className="text-sm text-slate-500">No verses match "{readerSearch}".</p>;
-                const shown = matches.slice(0, 100);
-                return (
-                  <div className="space-y-1">
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                      {matches.length} match{matches.length === 1 ? '' : 'es'}{matches.length > shown.length ? ` (showing first ${shown.length})` : ''}
-                    </p>
-                    <div className="max-h-96 space-y-1 overflow-y-auto">
-                      {shown.map((v) => {
-                        const idx = v.text.toLowerCase().indexOf(q);
-                        return (
-                          <button key={`${v.bookAbbrev}-${v.chapter}-${v.verse}`} type="button"
-                            onClick={() => jumpToReaderVerse(v.bookAbbrev, v.chapter, v.verse)}
-                            className="block w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-slate-50">
-                            <span className="font-semibold text-slate-700">{v.bookName} {v.chapter}:{v.verse}</span>{' '}
-                            <span className="text-slate-600">
-                              {v.text.slice(0, idx)}
-                              <mark className="rounded bg-yellow-200 px-0.5">{v.text.slice(idx, idx + q.length)}</mark>
-                              {v.text.slice(idx + q.length)}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-
-          {/* Audio player */}
-          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-panel">
-            <div className="flex-1">
-              <h3 className="text-sm font-semibold text-slate-900">Listen to this chapter</h3>
-              <p className="mt-1 text-xs text-slate-500">
-                {readerAudioState.status === 'error'
-                  ? "Couldn't load audio for this chapter/narrator."
-                  : `Audio follows ${readerBook?.name} ${readerChapter} as you browse.`}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <select value={audioNarrator} onChange={(e) => setAudioNarrator(e.target.value)}
-                className="rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200">
-                <option value="david">David</option>
-                <option value="hays">Hays</option>
-                <option value="souer">Souer</option>
-              </select>
-              {readerAudioState.status === 'playing' || readerAudioState.status === 'paused' ? (
-                <>
-                  <button type="button" onClick={handleToggleReaderAudioPause}
-                    className="rounded-xl bg-sky-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-sky-500">
-                    {readerAudioState.status === 'paused' ? 'Resume' : 'Pause'}
-                  </button>
-                  <button type="button" onClick={handleStopBookAudio}
-                    className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
-                    Stop
-                  </button>
-                </>
-              ) : (
-                <button type="button" onClick={handlePlayReaderAudio}
-                  className="rounded-xl bg-sky-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-sky-500">
-                  Play
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Verses */}
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-panel">
-            <h2 className="mb-1 text-xl font-semibold text-slate-900">
-              {readerBook?.name} {readerChapter} <span className="text-sm font-normal text-slate-500">(BSB)</span>
-            </h2>
-            {readerInterlinear && (
-              <p className="mb-4 text-xs text-slate-400">Click a verse number to see original words &amp; pronunciation · bookmark icon to save · copy icon to copy</p>
-            )}
-            {!readerInterlinear && (
-              <p className="mb-4 text-xs text-slate-400">Hover a verse for actions</p>
-            )}
-            {readerLoading && <p className="text-sm text-slate-500">Loading…</p>}
-            {readerError && <p className="text-sm text-rose-600">{readerError}</p>}
-            {!readerLoading && !readerError && (() => {
-              // Whole-Bible matches render in their own panel above; this list stays
-              // un-filtered in that mode so jumping to a result shows full context.
-              const searchLower = readerSearchScope === 'chapter' ? readerSearch.trim().toLowerCase() : '';
-              const filtered = searchLower
-                ? readerVerses.filter((v) => v.text.toLowerCase().includes(searchLower))
-                : readerVerses;
-              if (searchLower && filtered.length === 0) {
-                return <p className="text-sm text-slate-500">No verses match "{readerSearch}".</p>;
-              }
-              return (
-                <div className="space-y-3 leading-relaxed text-slate-800" style={{ fontSize: `${readerFontSize}em` }}>
-                  {filtered.map((verse) => {
-                    const chapterInterlinear = readerInterlinear?.[String(readerChapter)];
-                    const verseWords = chapterInterlinear?.[String(verse.number)];
-                    const isOpen = readerSelectedVerse === verse.number;
-                    const verseKey = `${readerBookAbbrev}-${readerChapter}-${verse.number}`;
-                    const bmColor = readerBookmarks[verseKey];
-                    const crossRefs = readerCrossRefs?.[verse.number];
-
-                    const highlightText = (text) => {
-                      if (!searchLower) return text;
-                      const idx = text.toLowerCase().indexOf(searchLower);
-                      if (idx === -1) return text;
-                      return (
-                        <>
-                          {text.slice(0, idx)}
-                          <mark className="bg-yellow-200 rounded px-0.5">{text.slice(idx, idx + searchLower.length)}</mark>
-                          {text.slice(idx + searchLower.length)}
-                        </>
-                      );
-                    };
-
-                    return (
-                      <div key={verse.number} id={`reader-verse-${verse.number}`} className="group rounded-xl transition"
-                        style={bmColor ? { backgroundColor: bmColor + '55', borderLeft: `3px solid ${bmColor}`, paddingLeft: '0.5rem' } : {}}>
-                        <div className="flex items-start gap-1">
-                          {/* Verse number / interlinear toggle */}
-                          <button type="button"
-                            onClick={() => setReaderSelectedVerse(isOpen ? null : verse.number)}
-                            className={`mt-0.5 shrink-0 rounded px-1 text-xs font-bold transition ${
-                              verseWords
-                                ? isOpen ? 'bg-sky-600 text-white' : 'text-sky-600 hover:bg-sky-50'
-                                : 'cursor-default text-slate-400'
-                            }`}
-                            title={verseWords ? 'Show original words' : undefined}>
-                            {verse.number}
-                          </button>
-                          {/* Verse text */}
-                          <p className="flex-1">{highlightText(verse.text)}</p>
-                          {/* Action icons — always visible so bookmarking works on touch devices too */}
-                          <span className="ml-1 mt-0.5 flex shrink-0 items-center gap-1">
-                            <button type="button"
-                              onClick={() => toggleReaderBookmark(verseKey)}
-                              className={`rounded p-1 leading-none hover:bg-slate-100 ${bmColor ? 'text-amber-600' : 'text-slate-400'}`}
-                              title={bmColor ? 'Remove bookmark' : 'Bookmark this verse'}>
-                              <BookmarkIcon filled={!!bmColor} />
-                            </button>
-                            {bmColor && (
-                              <button type="button"
-                                onClick={() => cycleBookmarkColor(verseKey)}
-                                className="rounded p-1 text-sm leading-none hover:bg-slate-100"
-                                title="Change highlight colour">
-                                🎨
-                              </button>
-                            )}
-                            <button type="button"
-                              onClick={() => copyVerse(readerBook?.name, readerChapter, verse.number, verse.text)}
-                              className="rounded p-1 leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                              title="Copy verse">
-                              <CopyIcon />
-                            </button>
-                          </span>
-                        </div>
-
-                        {/* Cross-references */}
-                        {readerShowCrossRefs && crossRefs && (
-                          <div className="mt-1 ml-6 flex flex-wrap gap-1">
-                            {crossRefs.slice(0, 8).map((ref, i) => {
-                              const label = formatCrossRef(ref);
-                              return (
-                                <span key={i} className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 cursor-default" title={`Score: ${ref.score ?? '?'}`}>
-                                  {label}
-                                </span>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {/* Interlinear panel */}
-                        {isOpen && verseWords && (
-                          <div className="mt-2 mb-1 ml-6 rounded-2xl border border-sky-100 bg-sky-50 p-3">
-                            <div className="flex flex-wrap gap-2">
-                              {verseWords.map((w, i) => {
-                                const isHebrew = w.s?.startsWith('H');
-                                const canSpeak = isHebrew || w.s?.startsWith('G');
-                                return (
-                                  <div key={i} className="rounded-xl border border-sky-200 bg-white p-2 text-center shadow-sm"
-                                    style={{ minWidth: '4.5rem', maxWidth: '9rem' }}>
-                                    <div className={`text-lg font-medium leading-tight ${isHebrew ? 'font-serif' : ''}`} dir={isHebrew ? 'rtl' : 'ltr'}>
-                                      {w.o}
-                                    </div>
-                                    <div className="mt-0.5 text-xs text-slate-500 italic">{w.t}</div>
-                                    <div className="mt-1 text-xs font-semibold text-slate-800">{w.g}</div>
-                                    {w.p && <div className="mt-0.5 text-[10px] text-slate-400 leading-tight">{w.p}</div>}
-                                    {w.s && <div className="mt-0.5 text-[10px] text-slate-400">{w.s}</div>}
-                                    {canSpeak && (
-                                      <button type="button" onClick={() => speakOriginalWord(w.o, w.s)}
-                                        className="mt-1.5 rounded-lg bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 hover:bg-sky-200 transition"
-                                        title={`Pronounce in ${isHebrew ? 'Hebrew' : 'Greek'}`}>
-                                        🔊 Speak
-                                      </button>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // SETUP PAGE (chunk builder)
-  // ---------------------------------------------------------------------------
-  if (currentPage === 'import') {
-    return (
-      <div className="min-h-screen bg-slate-50 text-slate-900">
-        <header className="border-b border-slate-200 bg-slate-900 text-white shadow-sm">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-5 sm:px-6 lg:px-8">
-            <div>
-              <p className="text-sm uppercase tracking-[0.24em] text-slate-300">Bible Study Project</p>
-              <h1 className="mt-2 text-2xl font-semibold">Import Session List</h1>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setCurrentPage('home')}
-                className="rounded-xl border border-slate-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
-              >
-                ← Back
-              </button>
-              {authStatus}
-            </div>
-          </div>
-        </header>
-
-        <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
-          <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-panel space-y-5">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 space-y-2">
-              <p className="font-semibold text-slate-700">How this works</p>
-              <p>
-                This is a shortcut for setting up a multi-part study — a teaching series, sermon series, class
-                curriculum, or podcast — all at once, instead of building each chapter and chunk by hand.
-              </p>
-              <p>
-                Upload a .docx containing a table with three columns: session number, title, and passage
-                (e.g. <span className="font-mono text-xs">1:1–2</span>). Each row becomes one chunk, grouped
-                automatically by chapter. If you don't have a document like this, just use{' '}
-                <span className="font-semibold">+ New Project</span> on the home page instead — this import
-                step is entirely optional.
-              </p>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block text-sm font-medium text-slate-700">
-                Book
-                <select
-                  value={importBookAbbrev}
-                  onChange={(e) => setImportBookAbbrev(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                >
-                  {bookOptions.map((b) => (
-                    <option key={b.abbrev} value={b.abbrev}>{b.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-sm font-medium text-slate-700">
-                Translation
-                <select
-                  value={importTranslation}
-                  onChange={(e) => setImportTranslation(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                >
-                  {availableTranslations.map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <label className="block text-sm font-medium text-slate-700">
-              Project title
-              <input
-                type="text"
-                value={importTitle}
-                onChange={(e) => setImportTitle(e.target.value)}
-                placeholder={`${bookOptions.find((b) => b.abbrev === importBookAbbrev)?.name ?? ''} Sessions`}
-                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-              />
-            </label>
-
-            <label className="block text-sm font-medium text-slate-700">
-              Session list (.docx)
-              <input
-                type="file"
-                accept=".docx"
-                onChange={(e) => handleImportFileChange(e.target.files?.[0] ?? null)}
-                className="mt-1 block w-full text-sm text-slate-600 file:mr-4 file:rounded-xl file:border-0 file:bg-slate-700 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-600"
-              />
-            </label>
-
-            {importBusy && <p className="text-sm text-slate-500">Working…</p>}
-            {importError && <p className="text-sm text-rose-600">{importError}</p>}
-
-            {importPreview && !importBusy && (
-              <div className="space-y-3">
-                <p className="text-sm font-semibold text-slate-700">
-                  {importPreview.length} session{importPreview.length === 1 ? '' : 's'} found
-                  {' · '}
-                  {importPreview.filter((s) => s.parsed && s.parsed !== 'invalid').length} with passages
-                </p>
-                <div className="max-h-80 overflow-y-auto rounded-xl border border-slate-200">
-                  <table className="w-full text-sm">
-                    <tbody>
-                      {importPreview.map((spec) => (
-                        <tr key={spec.episodeNumber} className="border-b border-slate-100 last:border-0">
-                          <td className="px-3 py-1.5 text-slate-500">#{spec.episodeNumber}</td>
-                          <td className="px-3 py-1.5 text-slate-900">{spec.title}</td>
-                          <td className="px-3 py-1.5 text-right text-slate-500">
-                            {spec.parsed === 'invalid'
-                              ? <span className="text-rose-600">unrecognized — skipped</span>
-                              : spec.parsed
-                                ? spec.passage
-                                : <span className="text-slate-400">marker (no passage)</span>}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <button
-                  type="button"
-                  onClick={runEpisodeImport}
-                  disabled={importBusy}
-                  className="rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
-                >
-                  Create Project from Import
-                </button>
-              </div>
-            )}
-          </section>
-        </main>
-      </div>
-    );
-  }
-
-  if (currentPage === 'setup') {
-    const chapterTabs = project?.chapters ?? [];
-
-    return (
-      <div className="min-h-screen bg-slate-50 text-slate-900">
-        <header className="border-b border-slate-200 bg-slate-900 text-white shadow-sm">
-          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
-            <div>
-              <p className="text-sm uppercase tracking-[0.24em] text-slate-300">Bible Study Project</p>
-              <h1 className="mt-2 text-2xl font-semibold">
-                {project ? project.title : 'New Study'}
-              </h1>
-            </div>
-            {headerButtons}
-          </div>
-        </header>
-
-        <main className="mx-auto max-w-7xl px-4 py-4 sm:py-8 sm:px-6 lg:px-8 space-y-8">
-          {/* Project setup form — shown when no project loaded yet */}
-          {!project && (
-            <section className="mx-auto max-w-3xl rounded-3xl border border-slate-200 bg-white p-8 shadow-panel">
-              <SetupForm
-                setup={setup}
-                availableTranslations={availableTranslations}
-                titleEdited={titleEdited}
-                loadingChapter={loadingChapter}
-                errorMessage={errorMessage}
-                onField={handleSetupField}
-                onTitleChange={(val) => { setTitleEdited(true); handleSetupField('title', val); }}
-                onLoad={handleLoadChapter}
-              />
-            </section>
-          )}
-
-          {/* Chapter tabs + verse/chunk editors */}
-          {project && (
-            <section className="space-y-6">
-              {/* Chapter tabs */}
-              <div className="flex flex-wrap items-center gap-2">
-                {chapterTabs.map((ch, idx) => (
-                  <button
-                    key={`${ch.bookAbbrev}-${ch.chapter}`}
-                    type="button"
-                    onClick={() => { setActiveChapterIndex(idx); setRangeStart(null); setRangeEnd(null); }}
-                    className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
-                      activeChapterIndex === idx
-                        ? 'bg-slate-900 text-white'
-                        : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    {ch.book} {ch.chapter}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setShowAddChapterForm((v) => !v)}
-                  className="rounded-full border border-dashed border-slate-400 px-4 py-1.5 text-sm text-slate-500 transition hover:border-slate-600 hover:text-slate-700"
-                >
-                  + Add Chapter
-                </button>
-              </div>
-
-              {/* Add-chapter form */}
-              {showAddChapterForm && (
-                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-panel">
-                  <h3 className="mb-4 text-sm font-semibold text-slate-900">Add another chapter</h3>
-                  <SetupForm
-                    setup={setup}
-                    availableTranslations={availableTranslations}
-                    titleEdited={titleEdited}
-                    loadingChapter={loadingChapter}
-                    errorMessage={errorMessage}
-                    hideTitle
-                    onField={handleSetupField}
-                    onTitleChange={(val) => { setTitleEdited(true); handleSetupField('title', val); }}
-                    onLoad={handleLoadChapter}
-                  />
-                </div>
-              )}
-
-              {/* Verse + chunk panel for active chapter */}
-              {activeChapter && (
-                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-panel">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium text-slate-500">Scripture & Chunks</p>
-                      <h2 className="mt-2 text-xl font-semibold text-slate-900">
-                        {activeChapter.book} {activeChapter.chapter} ({project.translation})
-                      </h2>
-                    </div>
-                    <div className="rounded-2xl bg-slate-100 px-3 py-2 text-sm text-slate-700">
-                      {statusMessage || 'Click/shift-click, or type a verse range, to create a chunk.'}
-                    </div>
-                  </div>
-                  <div className="mt-6 grid min-w-0 gap-6 lg:grid-cols-[1.25fr_0.75fr]">
-                    <div className="min-w-0 rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
-                      <div className="mb-4 flex items-center justify-between gap-3">
-                        <span className="text-sm font-medium text-slate-600">Chapter verses</span>
-                        <span className="text-xs text-slate-500">Click a verse, then shift-click an end verse.</span>
-                      </div>
-                      <input
-                        type="text"
-                        value={verseSearch}
-                        onChange={(e) => setVerseSearch(e.target.value)}
-                        placeholder="Search verses in this chapter…"
-                        className="mb-3 block w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                      />
-                      <div data-testid="verse-list" className="max-h-[520px] overflow-y-auto rounded-3xl border border-slate-200 bg-white p-4 scrollbar-thin">
-                        {activeChapter.verses
-                          .filter((verse) => verse.text.toLowerCase().includes(verseSearch.trim().toLowerCase()))
-                          .map((verse) => {
-                          const inRange =
-                            rangeStart !== null &&
-                            verse.number >= Math.min(rangeStart, rangeEnd) &&
-                            verse.number <= Math.max(rangeStart, rangeEnd);
-                          const inOwnChapterChunk = activeChapter.chunks.some(
-                            (chunk) => verse.number >= chunk.startVerse && verse.number <= chunk.endVerse,
-                          );
-                          const prevChapter = project?.chapters?.[activeChapterIndex - 1] ?? null;
-                          const inPrevChapterSpillover = prevChapter
-                            ? prevChapter.chunks.some((chunk) =>
-                              Number.isInteger(chunk.spilloverEndVerse)
-                              && prevChapter.bookAbbrev === activeChapter.bookAbbrev
-                              && verse.number <= chunk.spilloverEndVerse
-                            )
-                            : false;
-                          const inChunk = inOwnChapterChunk || inPrevChapterSpillover;
-                          return (
-                            <button
-                              key={verse.number}
-                              type="button"
-                              onClick={(event) => handleVerseClick(verse.number, event)}
-                              className={`group mb-2 w-full rounded-3xl px-4 py-3 text-left transition ${
-                                inRange ? 'bg-sky-100 ring-1 ring-sky-200' : inChunk ? 'bg-slate-100' : 'bg-white hover:bg-slate-50'
-                              }`}
-                            >
-                              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-200 text-sm font-semibold text-slate-700 transition group-hover:bg-slate-300">
-                                {verse.number}
-                              </span>
-                              <span className="ml-3 text-sm leading-relaxed text-slate-700">{verse.text}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    <div className="min-w-0 space-y-4 rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
-                      <div className="flex items-center justify-between gap-3">
-                        <h3 className="text-sm font-semibold text-slate-900">Chunks</h3>
-                        <span className="text-xs text-slate-500">{activeChapter.chunks.length} created</span>
-                      </div>
-                      <div className="rounded-2xl border border-slate-200 bg-white p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Type chunk range</p>
-                        <div className="mt-2 flex flex-wrap items-end gap-2">
-                          <label className="min-w-0 flex-1 text-xs text-slate-500">
-                            Start
-                            <input
-                              type="number"
-                              min="1"
-                              max={activeChapter.verses.at(-1)?.number ?? 1}
-                              value={typedChunkStart}
-                              onChange={(e) => setTypedChunkStart(e.target.value)}
-                              className="mt-1 block w-full rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                            />
-                          </label>
-                          <label className="min-w-0 flex-1 text-xs text-slate-500">
-                            End
-                            <input
-                              type="number"
-                              min="1"
-                              max={activeChapter.verses.at(-1)?.number ?? 1}
-                              value={typedChunkEnd}
-                              onChange={(e) => setTypedChunkEnd(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  addTypedChunk();
-                                }
-                              }}
-                              className="mt-1 block w-full rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                            />
-                          </label>
-                          <label className="min-w-0 flex-1 text-xs text-slate-500">
-                            Next ch end (optional)
-                            <input
-                              type="number"
-                              min="1"
-                              max={project?.chapters?.[activeChapterIndex + 1]?.verses?.at(-1)?.number ?? 1}
-                              value={typedChunkNextEnd}
-                              onChange={(e) => setTypedChunkNextEnd(e.target.value)}
-                              placeholder="e.g. 5"
-                              className="mt-1 block w-full rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            onClick={addTypedChunk}
-                            className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
-                          >
-                            Add
-                          </button>
-                        </div>
-                        <div className="mt-3">
-                          <label className="text-xs text-slate-500">
-                            Bulk ranges (comma/new line; use `start-end:nextEnd` to span)
-                            <textarea
-                              rows={2}
-                              value={typedChunkBulk}
-                              onChange={(e) => setTypedChunkBulk(e.target.value)}
-                              placeholder="1-6, 7-31:5, 6"
-                              className="mt-1 block w-full resize-y rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            onClick={addBulkTypedChunks}
-                            className="mt-2 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
-                          >
-                            Add All Ranges
-                          </button>
-                        </div>
-                      </div>
-                      <div className="rounded-2xl border border-slate-200 bg-white p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Click-based chapter span</p>
-                        <p className="mt-1 text-xs text-slate-500">Click a start verse in this chapter, then choose where to end in the next chapter.</p>
-                        <div className="mt-2 flex items-end gap-2">
-                          <div className="flex-1 text-xs text-slate-500">
-                            Start
-                            <div className="mt-1 rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-2 text-sm text-slate-900">
-                              {rangeStart ?? 'Not selected'}
-                            </div>
-                          </div>
-                          <label className="flex-1 text-xs text-slate-500">
-                            Next ch end
-                            <input
-                              type="number"
-                              min="1"
-                              max={project?.chapters?.[activeChapterIndex + 1]?.verses?.at(-1)?.number ?? 1}
-                              value={clickedSpanNextEnd}
-                              onChange={(e) => setClickedSpanNextEnd(e.target.value)}
-                              placeholder="e.g. 5"
-                              className="mt-1 block w-full rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            onClick={addClickSpanChunk}
-                            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
-                          >
-                            Span Into Next
-                          </button>
-                        </div>
-                      </div>
-                      <div className="space-y-3 max-h-[520px] overflow-y-auto scrollbar-thin">
-                        {activeChapter.chunks.length === 0 ? (
-                          <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
-                            No chunks yet. Select verse ranges to add sections.
-                          </div>
-                        ) : (
-                          activeChapter.chunks.map((chunk, index) => (
-                            <div
-                              key={chunk.id}
-                              className={`rounded-3xl border p-4 ${project.selectedChunkId === chunk.id ? 'border-sky-300 bg-sky-50' : 'border-slate-200 bg-white'} shadow-sm`}
-                            >
-                              <button
-                                type="button"
-                                onClick={() => updateProject((current) => ({ ...current, selectedChunkId: chunk.id }))}
-                                className="mb-3 w-full text-left"
-                              >
-                                <p className="text-sm font-semibold text-slate-900">
-                                  {formatChunkReference(project, activeChapterIndex, chunk, '–')}
-                                </p>
-                                <p className="mt-1 text-sm text-slate-600 truncate">
-                                  {activeChapter.verses.find((v) => v.number === chunk.startVerse)?.text || ''}
-                                </p>
-                              </button>
-                              <div className="flex items-center gap-2 text-sm text-slate-500">
-                                <button
-                                  type="button"
-                                  onClick={() => moveChunk(chunk.id, -1)}
-                                  disabled={index === 0}
-                                  className="rounded-full border border-slate-300 bg-white px-2 py-1 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
-                                >
-                                  ↑
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => moveChunk(chunk.id, 1)}
-                                  disabled={index === activeChapter.chunks.length - 1}
-                                  className="rounded-full border border-slate-300 bg-white px-2 py-1 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
-                                >
-                                  ↓
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => deleteChunk(chunk.id)}
-                                  className="rounded-full border border-rose-300 bg-rose-50 px-2 py-1 text-rose-600 transition hover:bg-rose-100"
-                                >
-                                  × Delete
-                                </button>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={beginStudying}
-                  disabled={allChunks.length === 0}
-                  className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-500"
-                >
-                  Begin Studying →
-                </button>
-              </div>
-            </section>
-          )}
-        </main>
-      </div>
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // STUDY PAGE
-  // ---------------------------------------------------------------------------
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="border-b border-slate-200 bg-slate-900 text-white shadow-sm">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
-          <div>
-            <p className="text-sm uppercase tracking-[0.24em] text-slate-300">Bible Study Project</p>
-            <h1 className="mt-2 text-2xl font-semibold">{project?.title ?? ''}</h1>
-            {selectedChunk && selectedChunkChapterIndex >= 0 && (
-              <p className="mt-1 text-sm text-slate-300">
-                {formatChunkReference(project, selectedChunkChapterIndex, selectedChunk, '–')}
-              </p>
-            )}
-          </div>
-          {headerButtons}
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-7xl px-4 py-4 sm:py-8 sm:px-6 lg:px-8">
-        <section className={`grid min-w-0 gap-6 ${studyLayout === 'split' ? '' : 'lg:grid-cols-[260px_1fr]'}`}>
-          {/* Sidebar */}
-          <aside className={`min-w-0 rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-panel max-sm:hidden ${studyLayout === 'split' ? 'hidden' : ''}`}>
-            <div className="mb-4">
-              <p className="text-sm font-medium text-slate-500">Chunk Navigation</p>
-              <h2 className="mt-2 text-xl font-semibold text-slate-900">{allChunks.length} chunks</h2>
-            </div>
-            {allChunks.length > 6 && (
-              <label className="mb-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Jump to chunk
-                <select
-                  value={project?.selectedChunkId ?? ''}
-                  onChange={(e) => updateProject((current) => ({ ...current, selectedChunkId: e.target.value }))}
-                  className="mt-1 block w-full rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm font-normal normal-case text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                >
-                  {project?.chapters.map((ch, chapterIndex) =>
-                    ch.chunks.map((chunk) => (
-                      <option key={chunk.id} value={chunk.id}>
-                        {formatChunkReference(project, chapterIndex, chunk, '–')}
-                      </option>
-                    )),
-                  )}
-                </select>
-              </label>
-            )}
-            <div className="space-y-6 max-h-[calc(100vh-260px)] overflow-y-auto scrollbar-thin">
-              {project?.chapters.map((ch, chapterIndex) => (
-                <div key={`${ch.bookAbbrev}-${ch.chapter}`}>
-                  {project.chapters.length > 1 && (
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-400">
-                      {ch.book} {ch.chapter}
-                    </p>
-                  )}
-                  <div className="space-y-2">
-                    {ch.chunks.length === 0 ? (
-                      <div className="rounded-3xl border border-dashed border-slate-200 p-3 text-xs text-slate-400">
-                        No chunks in this chapter.
-                      </div>
-                    ) : (
-                      ch.chunks.map((chunk) => {
-                        const isSelected = project.selectedChunkId === chunk.id;
-                        const hasContent =
-                          (chunk.observation ?? '').trim() ||
-                          (chunk.interpretation ?? '').trim() ||
-                          (chunk.application ?? '').trim() ||
-                          chunk.greekWords.length > 0;
-                        return (
-                          <button
-                            type="button"
-                            key={chunk.id}
-                            onClick={() => updateProject((current) => ({ ...current, selectedChunkId: chunk.id }))}
-                            className={`group flex w-full flex-col gap-1 rounded-3xl border-l-4 p-3 text-left transition ${
-                              isSelected
-                                ? 'border-amber-400 bg-amber-50'
-                                : 'border-transparent border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm font-semibold text-slate-900">
-                                {formatChunkReference(project, chapterIndex, chunk, '–')}
-                              </span>
-                              {hasContent ? <span className="text-emerald-600">✓</span> : null}
-                            </div>
-                            <p className="text-xs leading-relaxed text-slate-600 truncate">
-                              {ch.verses.find((v) => v.number === chunk.startVerse)?.text || ''}
-                            </p>
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </aside>
-
-          {/* Chunk editor */}
-          <div className="min-w-0 rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-panel">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-slate-500">Chunk editor</p>
-                <h2 className="mt-2 text-xl font-semibold text-slate-900">
-                  {selectedChunk
-                    ? `Section ${formatChunkReference(project, selectedChunkChapterIndex, selectedChunk, '–')}`
-                    : 'Select a chunk'}
-                </h2>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {selectedChunk && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={goToPreviousChunk}
-                      disabled={selectedChunkGlobalIndex <= 0}
-                      className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      ‹ Prev
-                    </button>
-                    <div className="rounded-2xl bg-slate-100 px-3 py-2 text-sm text-slate-700">
-                      {`Chunk ${selectedChunkGlobalIndex + 1} of ${allChunks.length}`}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={goToNextChunk}
-                      disabled={selectedChunkGlobalIndex >= allChunks.length - 1}
-                      className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      Next ›
-                    </button>
-                  </>
-                )}
-                {!selectedChunk && (
-                  <div className="rounded-2xl bg-slate-100 px-3 py-2 text-sm text-slate-700">
-                    Choose a chunk to study.
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setStudyLayout((m) => (m === 'split' ? 'stacked' : 'split'))}
-                  className="max-sm:hidden rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
-                  title="Toggle two-pane study layout"
-                >
-                  {studyLayout === 'split' ? '☰ Stacked View' : '◫ Split View'}
-                </button>
-              </div>
-            </div>
-
-            {/* Mobile tab bar — shown only below sm, replaces the stacked-scroll layout */}
-            <div className="sm:hidden -mx-4 mt-4 flex overflow-x-auto border-b border-slate-200">
-              {[
-                { id: 'scripture', label: 'Scripture' },
-                { id: 'notes', label: 'Notes' },
-                { id: 'crossRefs', label: 'Refs' },
-                { id: 'wordStudy', label: 'Words' },
-                { id: 'commentary', label: 'Commentary' },
-                { id: 'script', label: 'Script' },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setMobileStudyTab(tab.id)}
-                  className={`shrink-0 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
-                    mobileStudyTab === tab.id
-                      ? 'border-slate-900 text-slate-900'
-                      : 'border-transparent text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {selectedChunk ? (
-              <div className="mt-6 space-y-6">
-              <div className={`space-y-6 ${studyLayout === 'split' ? 'lg:flex lg:items-start lg:gap-6 lg:space-y-0' : ''}`}>
-                {/* Scripture */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'scripture' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' ? 'lg:sticky lg:top-6 lg:flex-1 lg:basis-0 lg:min-w-0 lg:self-start' : ''}`}>
-                  <div className="mb-4 flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-700">Scripture</p>
-                      <p className="text-xs text-slate-500">Read-only passage for the selected chunk.</p>
-                    </div>
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs uppercase tracking-[0.18em] text-slate-500">
-                      {formatChunkReference(project, selectedChunkChapterIndex, selectedChunk, '–')}
-                    </span>
-                  </div>
-                  <div className="space-y-3 font-serif text-slate-800">
-                    {selectedChunkVerses
-                      .map((verse) => (
-                        <p key={`${verse.chapter}-${verse.number}`} className="leading-relaxed">
-                          <span className="font-semibold text-slate-700">{verse.chapter}:{verse.number}.</span> {verse.text}
-                        </p>
-                      ))}
-                  </div>
-
-                  {/* Interlinear */}
-                  <div className="mt-4 border-t border-slate-200 pt-4">
-                    <button
-                      type="button"
-                      onClick={() => setCollapsedSections((c) => ({ ...c, interlinear: !c.interlinear }))}
-                      className="mb-2 flex w-full items-center justify-between gap-2 text-left"
-                    >
-                      <h3 className="text-sm font-semibold text-slate-900">Interlinear</h3>
-                      <span className="text-slate-400">{collapsedSections.interlinear ? '▸' : '▾'}</span>
-                    </button>
-                    {!collapsedSections.interlinear && (
-                      <div
-                        className="space-y-2 font-serif text-slate-800"
-                        dir={selectedChunkChapter && !NT_BOOK_NUMBER[selectedChunkChapter.bookAbbrev] ? 'rtl' : 'ltr'}
-                      >
-                        {interlinearLoading && <p className="text-sm font-sans text-slate-500">Loading interlinear text...</p>}
-                        {interlinearError && <p className="text-sm font-sans text-rose-500">{interlinearError}</p>}
-                        {!interlinearLoading && !interlinearError && interlinearData
-                          && Array.from(
-                            { length: selectedChunk.endVerse - selectedChunk.startVerse + 1 },
-                            (_, i) => selectedChunk.startVerse + i,
-                          )
-                            .filter((num) => interlinearData[String(num)])
-                            .map((num) => (
-                              <div key={num} className="leading-relaxed">
-                                <span className="font-sans font-semibold text-slate-700">{selectedChunkChapter.chapter}:{num}.</span>{' '}
-                                <span className="mt-1 inline-flex flex-wrap gap-x-3 gap-y-2 align-top">
-                                  {interlinearData[String(num)].map((w, i) => (
-                                    <span key={i} className="inline-flex flex-col items-center text-center" title={[w.t, w.s, w.p].filter(Boolean).join(' · ')}>
-                                      <span className="text-base">{w.o}</span>
-                                      <span className="font-sans text-[11px] leading-tight text-slate-500">{w.g || '—'}</span>
-                                    </span>
-                                  ))}
-                                </span>
-                              </div>
-                            ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Right column (study panels) */}
-                <div className={`space-y-6 ${studyLayout === 'split' ? 'lg:flex-1 lg:basis-0 lg:min-w-0' : ''}`}>
-                {studyLayout === 'split' && (
-                  <div className="sticky top-0 z-10 flex flex-wrap gap-2 rounded-3xl border border-slate-200 bg-white p-2 shadow-sm">
-                    {STUDY_TABS.map((tab) => (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => setActiveStudyTab(tab.id)}
-                        className={`rounded-2xl px-4 py-2 text-sm font-semibold transition ${
-                          activeStudyTab === tab.id
-                            ? 'bg-slate-900 text-white'
-                            : 'text-slate-600 hover:bg-slate-100'
-                        }`}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* Session metadata — optional, used to label this chunk within a series */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'notes' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' && activeStudyTab !== 'notes' ? 'hidden' : ''}`}>
-                  <h3 className="text-sm font-semibold text-slate-900">Session Info</h3>
-                  <p className="text-xs text-slate-500">
-                    Optional — only fill this in if this chunk is part of a numbered series (a podcast episode,
-                    sermon, or class session). Used to label it in exports and in "Prepare for Podcast."
-                  </p>
-                  <div className="mt-3 flex flex-col gap-3 sm:flex-row">
-                    <input
-                      type="text"
-                      value={selectedChunk?.episodeNumber ?? ''}
-                      onChange={(e) => updateChunk(selectedChunk.id, { episodeNumber: e.target.value })}
-                      placeholder="Session #"
-                      className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 sm:w-32"
-                    />
-                    <input
-                      type="text"
-                      value={selectedChunk?.episodeTitle ?? ''}
-                      onChange={(e) => updateChunk(selectedChunk.id, { episodeTitle: e.target.value })}
-                      placeholder="Session title"
-                      className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                    />
-                  </div>
-                </div>
-
-                {/* Background / general notes — unique per chunk */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'notes' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' && activeStudyTab !== 'notes' ? 'hidden' : ''}`}>
-                  <button
-                    type="button"
-                    onClick={() => setCollapsedSections((c) => ({ ...c, generalNotes: !c.generalNotes }))}
-                    className="flex w-full items-center justify-between gap-2 text-left"
-                  >
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-900">Background / General Notes</h3>
-                      <p className="text-xs text-slate-500">Context, history, authorship, themes for this chunk.</p>
-                    </div>
-                    <span className="text-slate-400">{collapsedSections.generalNotes ? '▸' : '▾'}</span>
-                  </button>
-                  {!collapsedSections.generalNotes && (
-                    <textarea
-                      value={selectedChunk?.generalNotes ?? ''}
-                      onChange={(e) => updateChunk(selectedChunk.id, { generalNotes: e.target.value })}
-                      rows={4}
-                      placeholder="e.g. author, date, audience, historical context, key themes…"
-                      className="mt-4 w-full resize-y rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm leading-6 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                    />
-                  )}
-                </div>
-
-                {/* OIA Notes */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 space-y-4 ${mobileStudyTab !== 'notes' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' && activeStudyTab !== 'notes' ? 'hidden' : ''}`}>
-                  <button
-                    type="button"
-                    onClick={() => setCollapsedSections((c) => ({ ...c, oia: !c.oia }))}
-                    className="flex w-full items-center justify-between gap-2 text-left"
-                  >
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-900">Study Notes (OIA)</h3>
-                      <p className="text-xs text-slate-500">Observation · Interpretation · Application</p>
-                    </div>
-                    <span className="text-slate-400">{collapsedSections.oia ? '▸' : '▾'}</span>
-                  </button>
-                  {!collapsedSections.oia && [
-                    {
-                      field: 'observation',
-                      label: 'Observation',
-                      placeholder: 'What does the text actually say?\n• Who is speaking, and to whom?\n• What key words or phrases repeat?\n• What\'s the tone, structure, or literary style?',
-                    },
-                    {
-                      field: 'interpretation',
-                      label: 'Interpretation',
-                      placeholder: 'What did this mean to its original audience?\n• What\'s the historical/cultural context?\n• How does it fit the surrounding argument?\n• What does it reveal about God\'s character?',
-                    },
-                    {
-                      field: 'application',
-                      label: 'Application',
-                      placeholder: 'How should this shape your life today?\n• What attitude or action does this call for?\n• Is there a promise to trust or a warning to heed?\n• Who could you share this with?',
-                    },
-                  ].map(({ field, label, placeholder }) => (
-                    <div key={field}>
-                      <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">
-                        {label}
-                      </label>
-                      <textarea
-                        value={selectedChunk[field] ?? ''}
-                        onChange={(e) => updateChunk(selectedChunk.id, { [field]: e.target.value })}
-                        rows={4}
-                        placeholder={placeholder}
-                        className="w-full resize-y rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm leading-6 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                      />
-                    </div>
-                  ))}
-                </div>
-
-                {/* Tags */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'notes' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' && activeStudyTab !== 'notes' ? 'hidden' : ''}`}>
-                  <h3 className="text-sm font-semibold text-slate-900">Tags</h3>
-                  <p className="mb-3 text-xs text-slate-500">Label this chunk by topic so you can search across studies later.</p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {(selectedChunk.tags ?? []).map((tag) => (
-                      <span
-                        key={tag}
-                        className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-700"
-                      >
-                        {tag}
-                        <button
-                          type="button"
-                          onClick={() => removeTag(selectedChunk.id, tag)}
-                          className="text-indigo-400 transition hover:text-indigo-700"
-                          aria-label={`Remove tag ${tag}`}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                    <input
-                      type="text"
-                      value={tagInput}
-                      onChange={(e) => setTagInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') { e.preventDefault(); addTag(selectedChunk.id); }
-                      }}
-                      placeholder="Add a tag and press Enter"
-                      list="tag-suggestions"
-                      className="min-w-[10rem] flex-1 rounded-2xl border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                    />
-                  </div>
-                  {(() => {
-                    const used = new Set((selectedChunk.tags ?? []).map((t) => t.toLowerCase()));
-                    const allTags = Array.from(
-                      new Set([
-                        ...projectIndex.flatMap((entry) => entry.tags ?? []),
-                        ...(project?.chapters ?? []).flatMap((ch) => ch.chunks ?? []).flatMap((c) => c.tags ?? []),
-                      ]),
-                    )
-                      .filter((t) => !used.has(t.toLowerCase()))
-                      .sort((a, b) => a.localeCompare(b));
-                    if (allTags.length === 0) return null;
-                    return (
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <span className="text-xs text-slate-500">Suggestions:</span>
-                        {allTags.map((tag) => (
-                          <button
-                            key={tag}
-                            type="button"
-                            onClick={() => updateChunk(selectedChunk.id, { tags: [...(selectedChunk.tags ?? []), tag] })}
-                            className="rounded-full border border-indigo-200 px-3 py-1 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50"
-                          >
-                            + {tag}
-                          </button>
-                        ))}
-                      </div>
-                    );
-                  })()}
-                  <datalist id="tag-suggestions">
-                    {Array.from(
-                      new Set([
-                        ...projectIndex.flatMap((entry) => entry.tags ?? []),
-                        ...(project?.chapters ?? []).flatMap((ch) => ch.chunks ?? []).flatMap((c) => c.tags ?? []),
-                      ]),
-                    ).map((tag) => (
-                      <option key={tag} value={tag} />
-                    ))}
-                  </datalist>
-                </div>
-
-                {/* Cross-references */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'crossRefs' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' && activeStudyTab !== 'crossRefs' ? 'hidden' : ''}`}>
-                  <button
-                    type="button"
-                    onClick={() => setCollapsedSections((c) => ({ ...c, crossRefs: !c.crossRefs }))}
-                    className="mb-3 flex w-full items-center justify-between gap-2 text-left"
-                  >
-                    <h3 className="text-sm font-semibold text-slate-900">Cross-References</h3>
-                    <span className="text-slate-400">{collapsedSections.crossRefs ? '▸' : '▾'}</span>
-                  </button>
-                  {!collapsedSections.crossRefs && <>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={crossRefInput}
-                      onChange={(e) => setCrossRefInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCrossRef(selectedChunk.id); } }}
-                      placeholder="e.g. John 1:1 or Rom 3:23"
-                      className="flex-1 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => addCrossRef(selectedChunk.id)}
-                      className="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-                    >
-                      Add
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => suggestCrossRefsForChunk(selectedChunk.id)}
-                    disabled={suggestingCrossRefs}
-                    className="mt-2 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {suggestingCrossRefs ? 'Suggesting...' : '✨ Suggest from passage'}
-                  </button>
-                  {crossRefSuggestions.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {crossRefSuggestions.map((ref) => (
-                        <button
-                          key={ref}
-                          type="button"
-                          onClick={() => addSuggestedCrossRef(selectedChunk.id, ref)}
-                          className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-white px-3 py-1 text-sm text-amber-700 transition hover:bg-amber-100"
-                        >
-                          + {ref}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {(selectedChunk.crossReferences ?? []).length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {selectedChunk.crossReferences.map((ref) => (
-                        <CrossRefChip
-                          key={ref}
-                          label={ref}
-                          onRemove={() => removeCrossRef(selectedChunk.id, ref)}
-                          loadVerseText={loadVerseText}
-                        />
-                      ))}
-                    </div>
-                  )}
-                  </>}
-                </div>
-
-                {/* Greek words */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'wordStudy' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' && activeStudyTab !== 'wordStudy' ? 'hidden' : ''}`}>
-                  <button
-                    type="button"
-                    onClick={() => setCollapsedSections((c) => ({ ...c, greek: !c.greek }))}
-                    className="mb-5 flex w-full items-center justify-between gap-4 text-left"
-                  >
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-900">Word Studies (Greek/Hebrew)</h3>
-                      <p className="text-sm text-slate-500">Add lexical notes, look up Strong's entries, and suggest words from the passage.</p>
-                    </div>
-                    <span className="text-slate-400 shrink-0">{collapsedSections.greek ? '▸' : '▾'}</span>
-                  </button>
-                  {!collapsedSections.greek && <>
-                  <div className="mb-5 flex items-center justify-end gap-4">
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => suggestGreekWordsForChunk(selectedChunk.id)}
-                        disabled={suggestingGreekForChunkId === selectedChunk.id}
-                        className="rounded-full bg-amber-100 px-4 py-2 text-sm font-semibold text-amber-800 border border-amber-300 transition hover:bg-amber-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Auto-populate Greek words that actually appear in this passage"
-                      >
-                        {suggestingGreekForChunkId === selectedChunk.id ? 'Suggesting…' : '✦ Suggest from passage'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => suggestHebrewWordsForChunk(selectedChunk.id)}
-                        disabled={suggestingHebrewForChunkId === selectedChunk.id}
-                        className="rounded-full bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-800 border border-emerald-300 transition hover:bg-emerald-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Suggest Hebrew words for Old Testament passages"
-                      >
-                        {suggestingHebrewForChunkId === selectedChunk.id ? 'Suggesting…' : '✦ Suggest Hebrew'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => addGreekWord(selectedChunk.id)}
-                        className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-                      >
-                        Add Greek Word
-                      </button>
-                    </div>
-                  </div>
-                  <div className="space-y-4">
-                    {selectedChunk.greekWords.length === 0 ? (
-                      <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500">
-                        No words yet. Add one to begin a lookup.
-                      </div>
-                    ) : (
-                      selectedChunk.greekWords.map((word) => (
-                        <div key={word.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                          <div className="grid gap-4 sm:grid-cols-[1.4fr_1fr]">
-                            <label className="text-sm text-slate-600">
-                              Strong's number or English gloss
-                              <input
-                                type="text"
-                                value={word.query}
-                                onChange={(e) => updateChunkWord(selectedChunk.id, word.id, { query: e.target.value })}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') { e.preventDefault(); lookupWord(selectedChunk.id, word.id, 'greek'); }
-                                }}
-                                placeholder="G4102, H7225, 4102, or a word"
-                                className="mt-2 block w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                              />
-                            </label>
-                            <div className="flex items-end justify-between gap-3">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => lookupWord(selectedChunk.id, word.id, 'greek')}
-                                  className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-                                >
-                                  {word.loading ? 'Looking up...' : 'Look Up Greek'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => lookupWord(selectedChunk.id, word.id, 'hebrew')}
-                                  className="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
-                                >
-                                  {word.loading ? 'Looking up...' : 'Look Up Hebrew'}
-                                </button>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => removeGreekWord(selectedChunk.id, word.id)}
-                                className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </div>
-                          {word.strongNumber ? (
-                            <div className="mt-3 flex items-center gap-2">
-                              <span
-                                className="group relative inline-flex cursor-default items-center rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-semibold text-sky-700"
-                                title={word.shortDefinition || word.englishGloss || ''}
-                              >
-                                {word.strongNumber}
-                                {(word.shortDefinition || word.englishGloss) && (
-                                  <span className="pointer-events-none absolute bottom-full left-0 z-20 mb-1 hidden w-max max-w-xs rounded-xl bg-slate-900 px-3 py-2 text-xs font-normal leading-5 text-white shadow-lg group-hover:block">
-                                    {word.shortDefinition || word.englishGloss}
-                                  </span>
-                                )}
-                              </span>
-                            </div>
-                          ) : null}
-                          <div className="mt-4 grid gap-4 sm:grid-cols-3">
-                            <label className="text-sm text-slate-600">
-                              <span className="flex items-center gap-2">
-                                {word.strongNumber?.startsWith('H') ? 'Hebrew word' : 'Greek word'}
-                                {word.lexeme && (
-                                  <button
-                                    type="button"
-                                    onClick={() => speakOriginalWord(word.lexeme, word.strongNumber)}
-                                    className="rounded-lg bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 hover:bg-sky-200 transition"
-                                    title="Hear pronunciation"
-                                  >
-                                    🔊 Speak
-                                  </button>
-                                )}
-                              </span>
-                              <input
-                                type="text"
-                                value={word.lexeme}
-                                onChange={(e) => updateChunkWord(selectedChunk.id, word.id, { lexeme: e.target.value })}
-                                className="mt-2 block w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                              />
-                            </label>
-                            <label className="text-sm text-slate-600">
-                              Transliteration
-                              <input
-                                type="text"
-                                value={word.transliteration}
-                                onChange={(e) => updateChunkWord(selectedChunk.id, word.id, { transliteration: e.target.value })}
-                                className="mt-2 block w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                              />
-                            </label>
-                            <label className="text-sm text-slate-600">
-                              Part of speech
-                              <input
-                                type="text"
-                                value={word.partOfSpeech}
-                                onChange={(e) => updateChunkWord(selectedChunk.id, word.id, { partOfSpeech: e.target.value })}
-                                placeholder="e.g. Noun"
-                                className="mt-2 block w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                              />
-                            </label>
-                          </div>
-                          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                            <label className="text-sm text-slate-600">
-                              English word
-                              <input
-                                type="text"
-                                value={word.englishGloss ?? ''}
-                                onChange={(e) => updateChunkWord(selectedChunk.id, word.id, { englishGloss: e.target.value })}
-                                placeholder="e.g. grace"
-                                className="mt-2 block w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                              />
-                            </label>
-                            <label className="text-sm text-slate-600">
-                              Short definition
-                              <input
-                                type="text"
-                                value={word.shortDefinition}
-                                onChange={(e) => updateChunkWord(selectedChunk.id, word.id, { shortDefinition: e.target.value })}
-                                className="mt-2 block w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                              />
-                            </label>
-                          </div>
-                          {word.definitionHtml ? (
-                            <details className="group mt-4 rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                              <summary className="cursor-pointer text-sm font-semibold text-slate-900 transition hover:text-slate-700">
-                                Extended definition
-                              </summary>
-                              <div
-                                className="mt-3 text-sm leading-6 text-slate-700"
-                                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(word.definitionHtml) }}
-                              />
-                            </details>
-                          ) : null}
-                          {(word.shortDefinition === 'No definition found.' || word.shortDefinition === 'Lookup failed.') && !word.lexeme && !word.definitionHtml && word.query.trim() ? (
-                            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                              <p className="mb-2 text-xs font-semibold text-amber-800">
-                                Not found in BDBT — look it up manually:
-                              </p>
-                              <div className="flex flex-wrap gap-2">
-                                {externalLookupLinks(word.query).map(({ label, url }) => (
-                                  <a
-                                    key={label}
-                                    href={url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="rounded-lg border border-amber-300 bg-white px-3 py-1 text-xs font-medium text-amber-900 transition hover:bg-amber-100"
-                                  >
-                                    {label} ↗
-                                  </a>
-                                ))}
-                                <button
-                                  type="button"
-                                  onClick={() => navigator.clipboard.writeText(word.query.trim())}
-                                  className="rounded-lg border border-amber-300 bg-white px-3 py-1 text-xs font-medium text-amber-900 transition hover:bg-amber-100"
-                                >
-                                  Copy "{word.query.trim()}"
-                                </button>
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                  </>}
-                </div>
-
-                {/* Commentary */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'commentary' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' && activeStudyTab !== 'commentary' ? 'hidden' : ''}`}>
-                  <button
-                    type="button"
-                    onClick={() => setCollapsedSections((c) => ({ ...c, commentary: !c.commentary }))}
-                    className="mb-3 flex w-full items-center justify-between gap-2 text-left"
-                  >
-                    <h3 className="text-sm font-semibold text-slate-900">Commentary</h3>
-                    <span className="text-slate-400">{collapsedSections.commentary ? '▸' : '▾'}</span>
-                  </button>
-                  {!collapsedSections.commentary && <>
-                    <select
-                      value={commentarySource}
-                      onChange={(e) => setCommentarySource(e.target.value)}
-                      className="mb-3 block w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                    >
-                      {COMMENTARY_OPTIONS.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                    {commentaryLoading && <p className="text-sm text-slate-500">Loading commentary...</p>}
-                    {commentaryError && <p className="text-sm text-rose-500">{commentaryError}</p>}
-                    {!commentaryLoading && !commentaryError && commentaryData && (() => {
-                      const verses = (commentaryData.chapter?.content ?? []).filter(
-                        (item) => item.type === 'verse'
-                          && item.number >= selectedChunk.startVerse
-                          && item.number <= selectedChunk.endVerse,
-                      );
-                      if (verses.length === 0) {
-                        return <p className="text-sm text-slate-500">No commentary found for this verse range.</p>;
-                      }
-                      return (
-                        <div className="space-y-4">
-                          {verses.map((v) => (
-                            <div key={v.number}>
-                              <p className="text-sm font-semibold text-slate-700">Verse {v.number}</p>
-                              {(v.content ?? []).map((p, i) => (
-                                <p
-                                  key={i}
-                                  className="mt-1 text-sm text-slate-600 cursor-context-menu"
-                                  title="Right-click to add to Background / General Notes"
-                                  onContextMenu={(e) => {
-                                    e.preventDefault();
-                                    const sourceName = COMMENTARY_OPTIONS.find((c) => c.id === commentarySource)?.name ?? commentarySource;
-                                    const ref = formatChunkReference(project, selectedChunkChapterIndex, selectedChunk, '–');
-                                    const citation = `${p} (${sourceName}, ${ref}:${v.number})`;
-                                    const existing = selectedChunk.generalNotes ?? '';
-                                    const next = existing ? `${existing}\n\n${citation}` : citation;
-                                    updateChunk(selectedChunk.id, { generalNotes: next });
-                                  }}
-                                >
-                                  {p}
-                                </p>
-                              ))}
-                            </div>
-                          ))}
-                        </div>
-                      );
-                    })()}
-                  </>}
-                </div>
-
-                {/* Final episode script archive */}
-                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'script' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' && activeStudyTab !== 'script' ? 'hidden' : ''}`}>
-                  <button
-                    type="button"
-                    onClick={() => setCollapsedSections((c) => ({ ...c, finalScript: !c.finalScript }))}
-                    className="flex w-full items-center justify-between gap-2 text-left"
-                  >
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-900">Final Script <span className="font-normal text-slate-400">(optional)</span></h3>
-                      <p className="text-xs text-slate-500">Paste the finished script for this chunk once Claude has helped you write it — keeps the project as a complete archive. Useful for a podcast, sermon, or any spoken teaching, not required for personal study.</p>
-                    </div>
-                    <span className="text-slate-400">{collapsedSections.finalScript ? '▸' : '▾'}</span>
-                  </button>
-                  {!collapsedSections.finalScript && (
-                    <>
-                    <div className="mt-4 flex items-center gap-3">
-                      <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400">
-                        ⬆ Upload .docx
-                        <input
-                          type="file"
-                          accept=".docx"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            importFinalScriptDocx(selectedChunk.id, file);
-                            e.target.value = '';
-                          }}
-                        />
-                      </label>
-                      <span className="text-xs text-slate-500">Replaces the text below with the document's text.</span>
-                    </div>
-                    <textarea
-                      value={selectedChunk?.finalScript ?? ''}
-                      onChange={(e) => updateChunk(selectedChunk.id, { finalScript: e.target.value })}
-                      rows={8}
-                      placeholder="Paste the final recorded/recordable script here…"
-                      className="mt-4 w-full resize-y rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm leading-6 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                    />
-                    </>
-                  )}
-                </div>
-
-                </div>
-                </div>
-
-                {/* Prev / Next */}
-                <div className="flex items-center justify-between gap-3">
-                  <button
-                    type="button"
-                    onClick={goToPreviousChunk}
-                    disabled={selectedChunkGlobalIndex <= 0}
-                    className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    ← Previous Chunk
-                  </button>
-                  <button
-                    type="button"
-                    onClick={goToNextChunk}
-                    disabled={selectedChunkGlobalIndex >= allChunks.length - 1}
-                    className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    Next Chunk →
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-8 text-center text-slate-500">
-                <span className="sm:hidden">Use ‹ Prev / Next › above to pick a chunk.</span>
-                <span className="hidden sm:inline">Select a chunk from the left panel to edit its notes and Greek studies.</span>
-              </div>
-            )}
-          </div>
-        </section>
-      </main>
-
-      {/* Greek word picker modal — portalled to document.body so it's never clipped by parent CSS */}
-      {suggestModal && createPortal(
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) { setSuggestModal(null); setSuggestSelection(new Set()); } }}
-        >
-          <div className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-3xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-              <div>
-                <h2 className="text-base font-semibold text-slate-900">Select {suggestModal.language === 'hebrew' ? 'Hebrew' : 'Greek'} words to add</h2>
-                <p className="text-xs text-slate-500 mt-0.5">{suggestModal.helperText || "Content words are pre-checked. Uncheck any you don't need."}</p>
-              </div>
-              <button
-                onClick={() => { setSuggestModal(null); setSuggestSelection(new Set()); }}
-                className="text-slate-400 hover:text-slate-600 text-xl leading-none"
-              >×</button>
-            </div>
-            <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-2">
-              <button
-                onClick={() => setSuggestSelection(new Set(suggestModal.words.map((w) => w.strongKey)))}
-                className="text-xs text-sky-600 hover:underline"
-              >Select all</button>
-              <span className="text-slate-300">·</span>
-              <button
-                onClick={() => setSuggestSelection(new Set())}
-                className="text-xs text-sky-600 hover:underline"
-              >Select none</button>
-              <span className="ml-auto text-xs text-slate-400">{suggestSelection.size} selected</span>
-            </div>
-            <ul className="flex-1 overflow-y-auto divide-y divide-slate-100 px-4 py-2">
-              {suggestModal.words.map((w) => (
-                <li key={w.strongKey}>
-                  <label className="flex cursor-pointer items-center gap-3 py-2.5">
-                    <input
-                      type="checkbox"
-                      checked={suggestSelection.has(w.strongKey)}
-                      onChange={(e) => {
-                        setSuggestSelection((prev) => {
-                          const next = new Set(prev);
-                          e.target.checked ? next.add(w.strongKey) : next.delete(w.strongKey);
-                          return next;
-                        });
-                      }}
-                      className="h-4 w-4 shrink-0 rounded border-slate-300 accent-slate-900"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline gap-2">
-                        <span className="font-semibold text-slate-900">{w.def || w.strongKey}</span>
-                        <span className="text-sm text-slate-500">{w.lexeme}</span>
-                        {w.translit && <span className="text-xs text-slate-400 italic">{w.translit}</span>}
-                        <span className="text-xs font-mono text-slate-300">{w.strongKey}</span>
-                      </div>
-                      {w.entry && (w.entry.strongs_def || w.entry.kjv_def || w.entry.derivation) && (
-                        <details className="mt-1">
-                          <summary
-                            className="cursor-pointer text-xs font-medium text-sky-600 hover:text-sky-700"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            Definition
-                          </summary>
-                          <div
-                            className="mt-1 text-xs leading-5 text-slate-600"
-                            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(buildGreekDefinitionHtml(w.strongKey, w.entry)) }}
-                          />
-                        </details>
-                      )}
-                    </div>
-                  </label>
-                </li>
-              ))}
-            </ul>
-            <div className="flex gap-3 border-t border-slate-200 px-6 py-4">
-              <button
-                onClick={() => { setSuggestModal(null); setSuggestSelection(new Set()); }}
-                className="flex-1 rounded-xl border border-slate-200 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-              >Cancel</button>
-              <button
-                onClick={confirmSuggestWords}
-                disabled={suggestSelection.size === 0}
-                className="flex-1 rounded-xl bg-slate-900 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed"
-              >Add {suggestSelection.size > 0 ? `${suggestSelection.size} word${suggestSelection.size > 1 ? 's' : ''}` : 'words'}</button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-    </div>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// SetupForm — extracted to avoid duplication between new-project and add-chapter flows
-// ---------------------------------------------------------------------------
-function SetupForm({ setup, availableTranslations, titleEdited, loadingChapter, errorMessage, hideTitle, onField, onTitleChange, onLoad }) {
-  return (
-    <div className="space-y-6">
-      {!hideTitle && (
-        <div>
-          <h2 className="text-xl font-semibold text-slate-900">Project Setup</h2>
-          <p className="mt-2 text-sm text-slate-600">
-            Pick a translation, chapter, and title. Load the chapter to begin structuring your study into chunks.
-          </p>
-        </div>
-      )}
-      <div className="grid gap-5 sm:grid-cols-2">
-        <label className="block text-sm font-medium text-slate-700">
-          Translation
-          <select
-            value={setup.translation}
-            onChange={(e) => onField('translation', e.target.value)}
-            className="mt-2 block w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-          >
-            {availableTranslations.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-sm font-medium text-slate-700">
-          Book
-          <select
-            value={setup.bookAbbrev}
-            onChange={(e) => onField('book', e.target.value)}
-            className="mt-2 block w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-          >
-            {bookOptions.map((book) => (
-              <option key={book.abbrev} value={book.abbrev}>{book.name}</option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-sm font-medium text-slate-700">
-          Chapter
-          <input
-            type="number"
-            min="1"
-            value={setup.chapter}
-            onChange={(e) => onField('chapter', e.target.value)}
-            className="mt-2 block w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-          />
-        </label>
-        {!hideTitle && (
-          <label className="block text-sm font-medium text-slate-700 sm:col-span-2">
-            Project title
-            <input
-              type="text"
-              value={setup.title}
-              onChange={(e) => onTitleChange(e.target.value)}
-              className="mt-2 block w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-            />
-          </label>
-        )}
-      </div>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-sm text-slate-600">
-          {errorMessage
-            ? <span className="text-rose-500">{errorMessage}</span>
-            : 'Start by loading the chapter text from HelloAO.'}
-        </div>
-        <button
-          type="button"
-          onClick={onLoad}
-          disabled={loadingChapter}
-          className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-500"
-        >
-          {loadingChapter ? 'Loading...' : 'Load Chapter'}
-        </button>
-      </div>
-    </div>
-  );
+  if (authUser === null && !authServerDown) return <AuthPage />;
+
+  if (currentPage === 'admin') return <AdminPage />;
+  if (currentPage === 'settings') return <SettingsPage />;
+  if (currentPage === 'reader') return <ReaderPage />;
+  if (currentPage === 'import') return <ImportPage />;
+  if (currentPage === 'study') return <StudyPage />;
+  if (currentPage === 'setup') return <SetupPage />;
+  return <HomePage />;
 }
 
 export default App;
