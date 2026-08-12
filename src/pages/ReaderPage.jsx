@@ -1,5 +1,7 @@
+import { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext.js';
 import { bookOptions, BookmarkIcon, CopyIcon } from '../App.jsx';
+import DrawCanvas from './DrawCanvas.jsx';
 
 export default function ReaderPage() {
   const {
@@ -41,9 +43,15 @@ export default function ReaderPage() {
     copyVerse,
     formatCrossRef,
     setReaderCrossRefs,
+    readerInkByPage,
+    updateReaderPageInk,
   } = useApp();
 
   const readerBook = bookOptions.find((b) => b.abbrev === readerBookAbbrev);
+  const [readerDrawMode, setReaderDrawMode] = useState(false);
+  const readerPageInkStrokes = readerInkByPage?.[`${readerBookAbbrev}_${readerChapter}`] ?? [];
+
+  useEffect(() => { setReaderDrawMode(false); }, [readerBookAbbrev, readerChapter]);
   const bookmarkEntries = Object.entries(readerBookmarks).map(([key, color]) => {
     const [bAbbrev, chapterStr, verseStr] = key.split('-');
     const bookIndex = bookOptions.findIndex((b) => b.abbrev === bAbbrev);
@@ -201,6 +209,14 @@ export default function ReaderPage() {
               🔍 Search
             </button>
           )}
+          <div className="mx-2 h-4 w-px bg-slate-200" />
+          <button
+            type="button"
+            onClick={() => setReaderDrawMode((v) => !v)}
+            className={`rounded-lg px-3 py-1 text-xs font-semibold transition ${readerDrawMode ? 'bg-slate-900 text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+          >
+            ✏ Draw
+          </button>
         </div>
 
         {/* Whole-Bible search results */}
@@ -416,6 +432,17 @@ export default function ReaderPage() {
             );
           })()}
         </div>
+
+        {/* Ink notebook — shown when Draw mode is active */}
+        {readerDrawMode && (
+          <div className="mt-4">
+            <DrawCanvas
+              strokes={readerPageInkStrokes}
+              onStrokesChange={(s) => updateReaderPageInk(readerBookAbbrev, readerChapter, s)}
+              onDone={() => setReaderDrawMode(false)}
+            />
+          </div>
+        )}
       </main>
     </div>
   );

@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import mammoth from 'mammoth';
+import { getStroke } from 'perfect-freehand';
+import { pathFromStroke } from './utils/inkRender.js';
 
 import { AppContext, useApp } from './context/AppContext.js';
 import AdminPage from './pages/AdminPage.jsx';
@@ -425,6 +427,28 @@ export function formatRelativeDate(ts) {
 
 const escHtml = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+function inkStrokesToSvgHtml(strokes) {
+  if (!strokes?.length) return '';
+  const W = 700, H = 500;
+  const lines = [];
+  for (let y = 32; y < H; y += 32)
+    lines.push(`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="#dde3ec" stroke-width="1"/>`);
+  lines.push(`<line x1="40" y1="0" x2="40" y2="${H}" stroke="#fca5a5" stroke-width="1"/>`);
+  const paths = strokes.map((s) => {
+    const pts = s.points.map(([x, y, p]) => [x * W, y * H, p]);
+    const outline = getStroke(pts, {
+      size: s.size * H,
+      thinning: s.tool === 'highlighter' ? 0 : 0.5,
+      smoothing: 0.5,
+      streamline: 0.4,
+    });
+    const d = pathFromStroke(outline);
+    if (!d) return '';
+    return `<path d="${d}" fill="${escHtml(s.color)}" opacity="${s.tool === 'highlighter' ? '0.35' : '1'}"/>`;
+  }).filter(Boolean).join('');
+  return `<div class="ink-notes"><strong>INK NOTES:</strong><div style="margin-top:8px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background:#fff;"><svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;max-width:100%;height:auto;">${lines.join('')}${paths}</svg></div></div>`;
+}
+
 export function buildExportHtml(project) {
   const style = `
     body { font-family: Georgia, serif; color: #0f172a; margin: 0; padding: 32px; }
@@ -435,7 +459,7 @@ export function buildExportHtml(project) {
     .chunk { margin-bottom: 2rem; padding: 1.25rem 1.5rem; border: 1px solid #cbd5e1; border-radius: 0.75rem; background: #ffffff; }
     .verse { margin: 0 0 0.75rem; line-height: 1.7; }
     .scripture-ref { font-weight: 700; margin-bottom: 0.75rem; }
-    .oia, .cross-refs, .greek { margin-top: 1rem; }
+    .oia, .cross-refs, .greek, .ink-notes { margin-top: 1rem; }
     .oia-section { margin-bottom: 0.75rem; }
     .greek table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
     .greek th, .greek td { border: 1px solid #d1d5db; padding: 0.65rem; text-align: left; }
@@ -506,6 +530,8 @@ export function buildExportHtml(project) {
         })
         .join('');
 
+      const inkHtml = inkStrokesToSvgHtml(chunk.inkStrokes);
+
       return `
         <section class="chunk">
           <div class="scripture-ref">${escHtml(scripture)}</div>
@@ -520,6 +546,7 @@ export function buildExportHtml(project) {
             ${greekRows ? greekTable : '<p><em>No Greek word notes.</em></p>'}
             ${extendedDefinitions}
           </div>
+          ${inkHtml}
         </section>
       `;
     }).join('');
@@ -1168,6 +1195,10 @@ const App = () => {
   const [audioNarrator, setAudioNarrator] = useState('souer');
   const [audioState, setAudioState] = useState({ status: 'idle', chapter: 0, total: 0 });
   const [readerAudioState, setReaderAudioState] = useState({ status: 'idle', chapter: 0 });
+  const [readerInkByPage, setReaderInkByPage] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('readerInkByPage') ?? '{}'); }
+    catch { return {}; }
+  });
   const audioRef = useRef(null);
   const audioModeRef = useRef('book'); // 'book' | 'reader' — which player owns audioRef
   const audioBookRef = useRef(audioBook);
@@ -1519,6 +1550,15 @@ const App = () => {
       return next;
     });
   };
+
+  const updateReaderPageInk = useCallback((bookAbbrev, chapter, strokes) => {
+    const key = `${bookAbbrev}_${chapter}`;
+    setReaderInkByPage((prev) => {
+      const next = { ...prev, [key]: strokes };
+      try { localStorage.setItem('readerInkByPage', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
 
   const cycleBookmarkColor = (verseKey) => {
     setReaderBookmarks((prev) => {
@@ -3705,6 +3745,8 @@ const deleteProject = (id) => {
     readerSearchActive, setReaderSearchActive,
     readerSearchScope, setReaderSearchScope,
     readerAudioState,
+    readerInkByPage,
+    updateReaderPageInk,
     bibleIndexStatus,
     loadReaderChapter,
     _bibleIndexCacheRef,

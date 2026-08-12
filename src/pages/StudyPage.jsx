@@ -2,7 +2,7 @@ import { createPortal } from 'react-dom';
 import DOMPurify from 'dompurify';
 import { useApp } from '../context/AppContext.js';
 import { STUDY_TABS, COMMENTARY_OPTIONS, NT_BOOK_NUMBER, formatChunkReference, CrossRefChip } from '../App.jsx';
-import DrawCanvas, { InkLayer } from './DrawCanvas.jsx';
+import DrawCanvas from './DrawCanvas.jsx';
 
 export default function StudyPage() {
   const {
@@ -243,9 +243,36 @@ export default function StudyPage() {
 
             {selectedChunk ? (
               <div className="mt-6 space-y-6">
+              {studyLayout === 'annotate' ? (
+                <div className="space-y-4">
+                  {/* Compact scripture strip */}
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Scripture · read-only</span>
+                      <span className="rounded-full bg-slate-200 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
+                        {formatChunkReference(project, selectedChunkChapterIndex, selectedChunk, '–')}
+                      </span>
+                    </div>
+                    <p className="font-serif text-sm leading-relaxed text-slate-700">
+                      {selectedChunkVerses.map((verse) => (
+                        <span key={`${verse.chapter}-${verse.number}`}>
+                          <span className="font-semibold text-slate-900">{verse.chapter}:{verse.number} </span>
+                          {verse.text}{' '}
+                        </span>
+                      ))}
+                    </p>
+                  </div>
+                  {/* Notebook canvas */}
+                  <DrawCanvas
+                    strokes={selectedChunk.inkStrokes ?? []}
+                    onStrokesChange={(s) => updateChunk(selectedChunk.id, { inkStrokes: s })}
+                    onDone={() => setStudyLayout('stacked')}
+                  />
+                </div>
+              ) : (
               <div className={`space-y-6 ${studyLayout === 'split' ? 'lg:flex lg:items-start lg:gap-6 lg:space-y-0' : ''}`}>
                 {/* Scripture */}
-                <div className={`relative overflow-hidden rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'scripture' && studyLayout !== 'annotate' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' ? 'lg:sticky lg:top-6 lg:flex-1 lg:basis-0 lg:min-w-0 lg:self-start' : ''}`}>
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'scripture' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' ? 'lg:sticky lg:top-6 lg:flex-1 lg:basis-0 lg:min-w-0 lg:self-start' : ''}`}>
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-slate-700">Scripture</p>
@@ -263,9 +290,6 @@ export default function StudyPage() {
                         </p>
                       ))}
                   </div>
-
-                  <InkLayer strokes={selectedChunk?.inkStrokes ?? []} />
-                  {studyLayout === 'annotate' && <DrawCanvas />}
 
                   {/* Interlinear */}
                   <div className="mt-4 border-t border-slate-200 pt-4">
@@ -880,6 +904,7 @@ export default function StudyPage() {
 
                 </div>
                 </div>
+              )}
 
                 {/* Prev / Next — sticky */}
                 <div className="sticky bottom-0 z-10 -mx-4 sm:-mx-6 mt-6 flex items-center justify-between gap-3 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-sm sm:px-6">

@@ -1,6 +1,6 @@
 import { getStroke } from 'perfect-freehand';
 
-function pathFromStroke(points) {
+export function pathFromStroke(points) {
   if (!points.length) return '';
   const d = [`M ${points[0][0].toFixed(2)} ${points[0][1].toFixed(2)}`];
   for (let i = 1; i < points.length - 1; i++) {
