@@ -68,42 +68,11 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
     ];
   }, []);
 
-  // Use native addEventListener (not React synthetic events) so that
-  // passive:false works correctly on iOS Safari and events are handled
-  // directly on the canvas element rather than via document-root delegation.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    function down(e) {
-      if (e.pointerType === 'touch') return;
-      isDrawingRef.current = true;
-      activeStrokeRef.current = [getPoint(e)];
-      render();
-    }
-
-    function move(e) {
-      if (e.pointerType === 'touch') return;
-      if (!isDrawingRef.current) return;
-      e.preventDefault();
-      const pt = getPoint(e);
-      activeStrokeRef.current = [...activeStrokeRef.current, pt];
-      if (drawToolRef.current === 'eraser') {
-        const [ex, ey] = pt;
-        const r = drawSizeRef.current * 3;
-        const remaining = strokesRef.current.filter(
-          (s) => !s.points.some(([sx, sy]) => Math.hypot(sx - ex, sy - ey) < r),
-        );
-        if (remaining.length !== strokesRef.current.length)
-          onStrokesChangeRef.current(remaining);
-      }
-      render();
-    }
-
-    function up(e) {
-      if (e.pointerType === 'touch') return;
-      if (!isDrawingRef.current) return;
-      isDrawingRef.current = false;
+    function commitStroke() {
       const pts = activeStrokeRef.current;
       if (drawToolRef.current !== 'eraser' && pts.length > 1) {
         onStrokesChangeRef.current([
@@ -118,7 +87,102 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
         ]);
       }
       activeStrokeRef.current = [];
+      isDrawingRef.current = false;
       render();
+    }
+
+    function eraseAt(pt) {
+      const [ex, ey] = pt;
+      const r = drawSizeRef.current * 3;
+      const remaining = strokesRef.current.filter(
+        (s) => !s.points.some(([sx, sy]) => Math.hypot(sx - ex, sy - ey) < r),
+      );
+      if (remaining.length !== strokesRef.current.length)
+        onStrokesChangeRef.current(remaining);
+    }
+
+    // iOS Safari: Apple Pencil fires Touch Events with touchType === 'stylus'.
+    // Pointer Events on iPadOS emit pointercancel immediately after pointerdown
+    // (palm detection or canvas-width resets from React re-renders), which forces
+    // a double-tap to start every stroke. Touch Events bypass this entirely.
+    if (typeof Touch !== 'undefined' && 'touchType' in Touch.prototype) {
+      function pointFromTouch(t) {
+        const rect = canvas.getBoundingClientRect();
+        return [
+          (t.clientX - rect.left) / rect.width,
+          (t.clientY - rect.top) / rect.height,
+          t.force ?? 0.5,
+        ];
+      }
+
+      function tStart(e) {
+        for (const t of e.changedTouches) {
+          if (t.touchType !== 'stylus') continue;
+          e.preventDefault();
+          isDrawingRef.current = true;
+          activeStrokeRef.current = [pointFromTouch(t)];
+          render();
+          return;
+        }
+      }
+
+      function tMove(e) {
+        if (!isDrawingRef.current) return;
+        for (const t of e.changedTouches) {
+          if (t.touchType !== 'stylus') continue;
+          e.preventDefault();
+          const pt = pointFromTouch(t);
+          activeStrokeRef.current = [...activeStrokeRef.current, pt];
+          if (drawToolRef.current === 'eraser') eraseAt(pt);
+          render();
+          return;
+        }
+      }
+
+      function tEnd(e) {
+        if (!isDrawingRef.current) return;
+        for (const t of e.changedTouches) {
+          if (t.touchType !== 'stylus') continue;
+          e.preventDefault();
+          commitStroke();
+          return;
+        }
+      }
+
+      canvas.addEventListener('touchstart', tStart, { passive: false });
+      canvas.addEventListener('touchmove', tMove, { passive: false });
+      canvas.addEventListener('touchend', tEnd, { passive: false });
+      canvas.addEventListener('touchcancel', tEnd, { passive: false });
+      return () => {
+        canvas.removeEventListener('touchstart', tStart);
+        canvas.removeEventListener('touchmove', tMove);
+        canvas.removeEventListener('touchend', tEnd);
+        canvas.removeEventListener('touchcancel', tEnd);
+      };
+    }
+
+    // Non-iOS: Pointer Events (mouse, Windows pen, etc.)
+    function down(e) {
+      if (e.pointerType === 'touch') return;
+      isDrawingRef.current = true;
+      activeStrokeRef.current = [getPoint(e)];
+      render();
+    }
+
+    function move(e) {
+      if (e.pointerType === 'touch') return;
+      if (!isDrawingRef.current) return;
+      e.preventDefault();
+      const pt = getPoint(e);
+      activeStrokeRef.current = [...activeStrokeRef.current, pt];
+      if (drawToolRef.current === 'eraser') eraseAt(pt);
+      render();
+    }
+
+    function up(e) {
+      if (e.pointerType === 'touch') return;
+      if (!isDrawingRef.current) return;
+      commitStroke();
     }
 
     canvas.addEventListener('pointerdown', down);
