@@ -300,8 +300,8 @@ export default function ReaderPage() {
           </div>
         </div>
 
-        {/* Verses */}
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-panel">
+        {/* Verses — hidden when draw mode is active */}
+        <div className={`rounded-3xl border border-slate-200 bg-white p-6 shadow-panel${readerDrawMode ? ' hidden' : ''}`}>
           <h2 className="mb-1 text-xl font-semibold text-slate-900">
             {readerBook?.name} {readerChapter} <span className="text-sm font-normal text-slate-500">(BSB)</span>
           </h2>
@@ -433,13 +433,27 @@ export default function ReaderPage() {
           })()}
         </div>
 
-        {/* Ink notebook — shown when Draw mode is active */}
+        {/* Draw mode — scripture text visible with canvas overlay + ruled notebook below */}
         {readerDrawMode && (
-          <div className="mt-4">
+          <div>
             <DrawCanvas
               strokes={readerPageInkStrokes}
               onStrokesChange={(s) => updateReaderPageInk(readerBookAbbrev, readerChapter, s)}
               onDone={() => setReaderDrawMode(false)}
+              headerContent={
+                <>
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className="font-semibold text-slate-700">{readerBook?.name} {readerChapter}</span>
+                    <span className="text-xs text-slate-400">BSB · draw on me</span>
+                  </div>
+                  {!readerLoading && readerVerses.map((v) => (
+                    <p key={v.number} className="mb-1">
+                      <span className="font-semibold text-slate-900">{v.number}.</span>{' '}
+                      {v.text}
+                    </p>
+                  ))}
+                </>
+              }
             />
           </div>
         )}

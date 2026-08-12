@@ -244,31 +244,27 @@ export default function StudyPage() {
             {selectedChunk ? (
               <div className="mt-6 space-y-6">
               {studyLayout === 'annotate' ? (
-                <div className="space-y-4">
-                  {/* Compact scripture strip */}
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <div className="mb-1.5 flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Scripture · read-only</span>
-                      <span className="rounded-full bg-slate-200 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
-                        {formatChunkReference(project, selectedChunkChapterIndex, selectedChunk, '–')}
-                      </span>
-                    </div>
-                    <p className="font-serif text-sm leading-relaxed text-slate-700">
-                      {selectedChunkVerses.map((verse) => (
-                        <span key={`${verse.chapter}-${verse.number}`}>
-                          <span className="font-semibold text-slate-900">{verse.chapter}:{verse.number} </span>
-                          {verse.text}{' '}
+                <DrawCanvas
+                  strokes={selectedChunk.inkStrokes ?? []}
+                  onStrokesChange={(s) => updateChunk(selectedChunk.id, { inkStrokes: s })}
+                  onDone={() => setStudyLayout('stacked')}
+                  headerContent={
+                    <>
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Scripture · draw on me</span>
+                        <span className="rounded-full bg-slate-200 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
+                          {formatChunkReference(project, selectedChunkChapterIndex, selectedChunk, '–')}
                         </span>
+                      </div>
+                      {selectedChunkVerses.map((verse) => (
+                        <p key={`${verse.chapter}-${verse.number}`} className="mb-1">
+                          <span className="font-semibold text-slate-900">{verse.chapter}:{verse.number}.</span>{' '}
+                          {verse.text}
+                        </p>
                       ))}
-                    </p>
-                  </div>
-                  {/* Notebook canvas */}
-                  <DrawCanvas
-                    strokes={selectedChunk.inkStrokes ?? []}
-                    onStrokesChange={(s) => updateChunk(selectedChunk.id, { inkStrokes: s })}
-                    onDone={() => setStudyLayout('stacked')}
-                  />
-                </div>
+                    </>
+                  }
+                />
               ) : (
               <div className={`space-y-6 ${studyLayout === 'split' ? 'lg:flex lg:items-start lg:gap-6 lg:space-y-0' : ''}`}>
                 {/* Scripture */}

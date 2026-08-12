@@ -13,7 +13,9 @@ const INK_SIZES = [
 // strokes: array of saved stroke objects
 // onStrokesChange: (newStrokes) => void
 // onDone: optional () => void — shows "Done" button when provided
-export default function DrawCanvas({ strokes, onStrokesChange, onDone }) {
+// headerContent: optional JSX rendered above the notebook area.
+// The canvas extends over it so you can draw directly on the content.
+export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerContent }) {
   const { drawTool, setDrawTool, drawColor, setDrawColor, drawSize, setDrawSize } = useApp();
 
   const canvasRef = useRef(null);
@@ -200,17 +202,30 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone }) {
         )}
       </div>
 
-      {/* Notebook canvas */}
-      <div
-        className="relative"
-        style={{
-          minHeight: 640,
-          background: 'white',
-          backgroundImage: 'repeating-linear-gradient(transparent 0px, transparent 31px, #dde3ec 31px, #dde3ec 32px)',
-        }}
-      >
-        {/* Red margin line */}
-        <div className="absolute bottom-0 left-10 top-0 w-px bg-rose-200" style={{ zIndex: 1 }} />
+      {/* Draw surface: optional scripture header + ruled notebook, one canvas over both */}
+      <div className="relative">
+        {/* Scripture content — canvas sits on top so you can draw directly on the text */}
+        {headerContent && (
+          <div
+            className="border-b border-slate-200 bg-slate-50 p-4 font-serif text-sm leading-relaxed text-slate-800"
+            style={{ pointerEvents: 'none', userSelect: 'none' }}
+          >
+            {headerContent}
+          </div>
+        )}
+        {/* Ruled notebook area */}
+        <div
+          style={{
+            minHeight: 640,
+            background: 'white',
+            backgroundImage: 'repeating-linear-gradient(transparent 0px, transparent 31px, #dde3ec 31px, #dde3ec 32px)',
+          }}
+        />
+        {/* Red margin line — only in pure-notebook mode */}
+        {!headerContent && (
+          <div className="absolute bottom-0 left-10 top-0 w-px bg-rose-200" style={{ zIndex: 1 }} />
+        )}
+        {/* Single canvas spanning the entire area (scripture + notebook) */}
         <canvas
           ref={canvasRef}
           className="absolute inset-0 h-full w-full"
