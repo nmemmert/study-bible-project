@@ -1321,7 +1321,7 @@ const App = () => {
   ); // 'stacked' | 'split' | 'annotate'
   const [drawTool, setDrawTool] = useState('pen');
   const [drawColor, setDrawColor] = useState('#0f172a');
-  const [drawSize, setDrawSize] = useState(0.012);
+  const [drawSize, setDrawSize] = useState(0.003);
   const [activeStudyTab, setActiveStudyTab] = useState(
     () => localStorage.getItem('activeStudyTab') || 'notes',
   );

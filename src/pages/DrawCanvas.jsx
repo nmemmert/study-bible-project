@@ -4,6 +4,7 @@ import { renderInkToCanvas } from '../utils/inkRender.js';
 
 const INK_COLORS = ['#0f172a', '#ef4444', '#3b82f6', '#16a34a', '#f59e0b', '#a855f7'];
 const INK_SIZES = [
+  { label: 'XS', value: 0.003 },
   { label: 'S', value: 0.006 },
   { label: 'M', value: 0.012 },
   { label: 'L', value: 0.025 },
