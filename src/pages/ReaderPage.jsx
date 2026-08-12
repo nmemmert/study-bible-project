@@ -433,28 +433,30 @@ export default function ReaderPage() {
           })()}
         </div>
 
-        {/* Draw mode — scripture text visible with canvas overlay + ruled notebook below */}
+        {/* Draw mode — Bible text on left, notebook canvas on right */}
         {readerDrawMode && (
-          <div>
-            <DrawCanvas
-              strokes={readerPageInkStrokes}
-              onStrokesChange={(s) => updateReaderPageInk(readerBookAbbrev, readerChapter, s)}
-              onDone={() => setReaderDrawMode(false)}
-              headerContent={
-                <>
-                  <div className="mb-2 flex items-center gap-2">
-                    <span className="font-semibold text-slate-700">{readerBook?.name} {readerChapter}</span>
-                    <span className="text-xs text-slate-400">BSB · draw on me</span>
-                  </div>
-                  {!readerLoading && readerVerses.map((v) => (
-                    <p key={v.number} className="mb-1">
-                      <span className="font-semibold text-slate-900">{v.number}.</span>{' '}
-                      {v.text}
-                    </p>
-                  ))}
-                </>
-              }
-            />
+          <div className="flex flex-col items-start gap-4 sm:flex-row">
+            {/* Scripture panel — sticky so it stays in view while notebook scrolls */}
+            <div className="w-full rounded-3xl border border-slate-200 bg-slate-50 p-5 font-serif text-sm leading-relaxed text-slate-800 sm:w-2/5 sm:shrink-0 sm:sticky sm:top-6 sm:max-h-[80vh] sm:overflow-y-auto">
+              <div className="mb-3">
+                <span className="font-semibold text-slate-900">{readerBook?.name} {readerChapter}</span>
+                <span className="ml-2 text-xs text-slate-400">BSB</span>
+              </div>
+              {!readerLoading && readerVerses.map((v) => (
+                <p key={v.number} className="mb-2">
+                  <span className="font-semibold text-slate-700">{v.number}.</span>{' '}
+                  {v.text}
+                </p>
+              ))}
+            </div>
+            {/* Notebook canvas */}
+            <div className="min-w-0 flex-1">
+              <DrawCanvas
+                strokes={readerPageInkStrokes}
+                onStrokesChange={(s) => updateReaderPageInk(readerBookAbbrev, readerChapter, s)}
+                onDone={() => setReaderDrawMode(false)}
+              />
+            </div>
           </div>
         )}
       </main>
