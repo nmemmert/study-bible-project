@@ -20,6 +20,7 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
 
   const canvasRef = useRef(null);
   const activeStrokeRef = useRef([]);
+  const isDrawingRef = useRef(false);
 
   // Refs prevent stale closures in stable callbacks
   const strokesRef = useRef(strokes);
@@ -69,15 +70,14 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
 
   const onPointerDown = useCallback((e) => {
     if (e.pointerType === 'touch') return;
-    e.preventDefault();
-    canvasRef.current?.setPointerCapture(e.pointerId);
+    isDrawingRef.current = true;
     activeStrokeRef.current = [getPoint(e)];
     render();
   }, [getPoint, render]);
 
   const onPointerMove = useCallback((e) => {
     if (e.pointerType === 'touch') return;
-    if (!canvasRef.current?.hasPointerCapture(e.pointerId)) return;
+    if (!isDrawingRef.current) return;
     e.preventDefault();
     const pt = getPoint(e);
     activeStrokeRef.current = [...activeStrokeRef.current, pt];
@@ -95,6 +95,8 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
 
   const onPointerUp = useCallback((e) => {
     if (e.pointerType === 'touch') return;
+    if (!isDrawingRef.current) return;
+    isDrawingRef.current = false;
     const pts = activeStrokeRef.current;
     if (drawToolRef.current !== 'eraser' && pts.length > 1) {
       onStrokesChangeRef.current([
