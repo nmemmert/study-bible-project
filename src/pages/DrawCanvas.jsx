@@ -232,7 +232,7 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
           style={{
             zIndex: 2,
             cursor: drawTool === 'eraser' ? 'cell' : 'crosshair',
-            touchAction: 'pan-y pinch-zoom',
+            touchAction: 'none',
           }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
