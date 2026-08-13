@@ -1199,6 +1199,12 @@ const App = () => {
     try { return JSON.parse(localStorage.getItem('readerInkByPage') ?? '{}'); }
     catch { return {}; }
   });
+  const [readerTextHighlights, setReaderTextHighlights] = useState(() => {
+    try {
+      const val = JSON.parse(localStorage.getItem('readerTextHighlights') || '[]');
+      return Array.isArray(val) ? val : [];
+    } catch { return []; }
+  });
   // Debounce timer ref so rapid stroke updates don't flood the server
   const inkSaveTimerRef = useRef({});
   const audioRef = useRef(null);
@@ -1578,6 +1584,23 @@ const App = () => {
       const idx = BOOKMARK_COLORS.indexOf(cur);
       const next = { ...prev, [verseKey]: BOOKMARK_COLORS[(idx + 1) % BOOKMARK_COLORS.length] };
       try { localStorage.setItem('reader-bookmarks', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const addTextHighlight = (highlight) => {
+    const id = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    setReaderTextHighlights(prev => {
+      const next = [...prev, { id, ...highlight }];
+      try { localStorage.setItem('readerTextHighlights', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const removeTextHighlight = (id) => {
+    setReaderTextHighlights(prev => {
+      const next = prev.filter(h => h.id !== id);
+      try { localStorage.setItem('readerTextHighlights', JSON.stringify(next)); } catch {}
       return next;
     });
   };
@@ -3772,6 +3795,9 @@ const deleteProject = (id) => {
     readerAudioState,
     readerInkByPage,
     updateReaderPageInk,
+    readerTextHighlights,
+    addTextHighlight,
+    removeTextHighlight,
     bibleIndexStatus,
     loadReaderChapter,
     _bibleIndexCacheRef,

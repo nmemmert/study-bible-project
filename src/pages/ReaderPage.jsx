@@ -45,11 +45,94 @@ export default function ReaderPage() {
     setReaderCrossRefs,
     readerInkByPage,
     updateReaderPageInk,
+    readerTextHighlights,
+    addTextHighlight,
+    removeTextHighlight,
   } = useApp();
 
   const readerBook = bookOptions.find((b) => b.abbrev === readerBookAbbrev);
   const [readerDrawMode, setReaderDrawMode] = useState(false);
   const readerPageInkStrokes = readerInkByPage?.[`${readerBookAbbrev}_${readerChapter}`] ?? [];
+  const [selectionPicker, setSelectionPicker] = useState(null);
+
+  // Dismiss the highlight picker when tapping outside it
+  useEffect(() => {
+    if (!selectionPicker) return;
+    const dismiss = () => setSelectionPicker(null);
+    document.addEventListener('pointerdown', dismiss);
+    return () => document.removeEventListener('pointerdown', dismiss);
+  }, [selectionPicker]);
+
+  // Render verse text with colored highlights and optional search match highlight
+  function renderVerseText(verseNum, text, searchLow) {
+    const spans = [];
+    for (const h of (readerTextHighlights || [])) {
+      if (h.book === readerBookAbbrev && h.chapter === readerChapter && h.verse === verseNum) {
+        spans.push({ start: h.startOffset, end: h.endOffset, type: 'hl', id: h.id, color: h.color });
+      }
+    }
+    if (searchLow) {
+      const lower = text.toLowerCase();
+      let i = 0;
+      while ((i = lower.indexOf(searchLow, i)) !== -1) {
+        spans.push({ start: i, end: i + searchLow.length, type: 'search' });
+        i += searchLow.length;
+      }
+    }
+    if (!spans.length) return text;
+    spans.sort((a, b) => a.start - b.start);
+    const parts = [];
+    let cursor = 0;
+    for (const s of spans) {
+      if (s.start < cursor) continue;
+      if (s.start > cursor) parts.push(text.slice(cursor, s.start));
+      if (s.type === 'hl') {
+        parts.push(
+          <mark key={s.id} style={{ backgroundColor: s.color, borderRadius: '2px', cursor: 'pointer' }}
+                onClick={() => removeTextHighlight(s.id)} title="Click to remove highlight">
+            {text.slice(s.start, s.end)}
+          </mark>
+        );
+      } else {
+        parts.push(
+          <mark key={`srch${s.start}`} className="bg-yellow-200 rounded px-0.5">
+            {text.slice(s.start, s.end)}
+          </mark>
+        );
+      }
+      cursor = s.end;
+    }
+    if (cursor < text.length) parts.push(text.slice(cursor));
+    return <>{parts}</>;
+  }
+
+  // Detect text selection and show the highlight color picker
+  function handleSelectionEnd() {
+    setTimeout(() => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      if (!rect.width) return;
+      let node = range.commonAncestorContainer;
+      if (node.nodeType !== 1) node = node.parentNode;
+      while (node && !(node.dataset && node.dataset.verseNum)) node = node.parentElement;
+      if (!node) return;
+      const verseNum = Number(node.dataset.verseNum);
+      const verse = readerVerses.find(v => v.number === verseNum);
+      if (!verse) return;
+      const selectedText = sel.toString();
+      const startOffset = verse.text.indexOf(selectedText);
+      if (startOffset === -1) return;
+      setSelectionPicker({
+        x: (rect.left + rect.right) / 2,
+        y: rect.top,
+        verse: verseNum,
+        startOffset,
+        endOffset: startOffset + selectedText.length,
+      });
+    }, 20);
+  }
 
   const bookmarkEntries = Object.entries(readerBookmarks).map(([key, color]) => {
     const [bAbbrev, chapterStr, verseStr] = key.split('-');
@@ -321,7 +404,8 @@ export default function ReaderPage() {
               return <p className="text-sm text-slate-500">No verses match "{readerSearch}".</p>;
             }
             return (
-              <div className="space-y-3 leading-relaxed text-slate-800" style={{ fontSize: `${readerFontSize}em` }}>
+              <div className="space-y-3 leading-relaxed text-slate-800" style={{ fontSize: `${readerFontSize}em` }}
+                   onPointerUp={handleSelectionEnd}>
                 {filtered.map((verse) => {
                   const chapterInterlinear = readerInterlinear?.[String(readerChapter)];
                   const verseWords = chapterInterlinear?.[String(verse.number)];
@@ -330,21 +414,9 @@ export default function ReaderPage() {
                   const bmColor = readerBookmarks[verseKey];
                   const crossRefs = readerCrossRefs?.[verse.number];
 
-                  const highlightText = (text) => {
-                    if (!searchLower) return text;
-                    const idx = text.toLowerCase().indexOf(searchLower);
-                    if (idx === -1) return text;
-                    return (
-                      <>
-                        {text.slice(0, idx)}
-                        <mark className="bg-yellow-200 rounded px-0.5">{text.slice(idx, idx + searchLower.length)}</mark>
-                        {text.slice(idx + searchLower.length)}
-                      </>
-                    );
-                  };
-
                   return (
-                    <div key={verse.number} id={`reader-verse-${verse.number}`} className="group rounded-xl transition"
+                    <div key={verse.number} id={`reader-verse-${verse.number}`} data-verse-num={verse.number}
+                      className="group rounded-xl transition"
                       style={bmColor ? { backgroundColor: bmColor + '55', borderLeft: `3px solid ${bmColor}`, paddingLeft: '0.5rem' } : {}}>
                       <div className="flex items-start gap-1">
                         <button type="button"
@@ -357,7 +429,7 @@ export default function ReaderPage() {
                           title={verseWords ? 'Show original words' : undefined}>
                           {verse.number}
                         </button>
-                        <p className="flex-1">{highlightText(verse.text)}</p>
+                        <p className="flex-1">{renderVerseText(verse.number, verse.text, searchLower)}</p>
                         <span className="ml-1 mt-0.5 flex shrink-0 items-center gap-1">
                           <button type="button"
                             onClick={() => toggleReaderBookmark(verseKey)}
@@ -436,15 +508,17 @@ export default function ReaderPage() {
         {readerDrawMode && (
           <div className="flex flex-col items-start gap-4 sm:flex-row">
             {/* Scripture panel — sticky so it stays in view while notebook scrolls */}
-            <div className="w-full rounded-3xl border border-slate-200 bg-slate-50 p-5 font-serif text-sm leading-relaxed text-slate-800 sm:w-72 sm:shrink-0 sm:sticky sm:top-6 sm:max-h-[80vh] sm:overflow-y-auto">
+            <div className="w-full rounded-3xl border border-slate-200 bg-slate-50 p-5 font-serif text-sm leading-relaxed text-slate-800 sm:w-72 sm:shrink-0 sm:sticky sm:top-6 sm:max-h-[80vh] sm:overflow-y-auto"
+                 onPointerUp={handleSelectionEnd}>
               <div className="mb-3">
                 <span className="font-semibold text-slate-900">{readerBook?.name} {readerChapter}</span>
                 <span className="ml-2 text-xs text-slate-400">BSB</span>
+                <p className="mt-1 text-xs text-slate-400 font-sans">Select text to highlight</p>
               </div>
               {!readerLoading && readerVerses.map((v) => (
-                <p key={v.number} className="mb-2">
+                <p key={v.number} className="mb-2" data-verse-num={v.number}>
                   <span className="font-semibold text-slate-700">{v.number}.</span>{' '}
-                  {v.text}
+                  {renderVerseText(v.number, v.text, '')}
                 </p>
               ))}
             </div>
@@ -459,6 +533,49 @@ export default function ReaderPage() {
           </div>
         )}
       </main>
+
+      {/* Highlight color picker — appears above text selection */}
+      {selectionPicker && (
+        <div
+          className="fixed z-50 flex items-center gap-1.5 rounded-2xl bg-white px-2.5 py-2 shadow-2xl border border-slate-200"
+          style={{
+            left: Math.max(8, Math.min(selectionPicker.x - 105, window.innerWidth - 220)),
+            top: selectionPicker.y > 80 ? selectionPicker.y - 56 : selectionPicker.y + 28,
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {['#fef08a', '#bbf7d0', '#bfdbfe', '#fecaca', '#e9d5ff', '#fed7aa'].map(color => (
+            <button
+              key={color}
+              className="h-7 w-7 rounded-full border-2 border-white shadow-sm hover:scale-110 transition-transform active:scale-95"
+              style={{ backgroundColor: color }}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                addTextHighlight({
+                  book: readerBookAbbrev,
+                  chapter: readerChapter,
+                  verse: selectionPicker.verse,
+                  startOffset: selectionPicker.startOffset,
+                  endOffset: selectionPicker.endOffset,
+                  color,
+                });
+                window.getSelection()?.removeAllRanges();
+                setSelectionPicker(null);
+              }}
+            />
+          ))}
+          <button
+            className="ml-1 h-7 w-7 rounded-full bg-slate-100 text-slate-500 text-xs flex items-center justify-center hover:bg-slate-200 transition"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              window.getSelection()?.removeAllRanges();
+              setSelectionPicker(null);
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 }
