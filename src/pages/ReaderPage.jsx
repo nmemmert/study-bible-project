@@ -57,8 +57,12 @@ export default function ReaderPage() {
   const [selectionPicker, setSelectionPicker] = useState(null);
   const swipeTouchRef = useRef(null);
 
+  const [toolbarVisible, setToolbarVisible] = useState(true);
+
   useEffect(() => {
     localStorage.setItem('reader-wide', readerWideLayout ? '1' : '0');
+    // Auto-collapse toolbar when entering wide mode, restore when leaving
+    setToolbarVisible(!readerWideLayout);
   }, [readerWideLayout]);
 
   // Swipe left/right to navigate chapters
@@ -206,6 +210,9 @@ export default function ReaderPage() {
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
+        {/* Collapsible toolbar — hidden in wide focus mode */}
+        <div className={`transition-all duration-200 ${!toolbarVisible ? 'hidden' : ''}`}>
+
         {/* Navigation + tools bar */}
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-panel">
           <label className="text-sm text-slate-600">
@@ -344,7 +351,18 @@ export default function ReaderPage() {
           >
             ⊞ Wide
           </button>
+          {readerWideLayout && (
+            <button
+              type="button"
+              onClick={() => setToolbarVisible(false)}
+              className="rounded-lg px-3 py-1 text-xs font-semibold border border-slate-300 text-slate-600 hover:bg-slate-50 transition"
+            >
+              ✕ Hide
+            </button>
+          )}
         </div>
+
+        </div>{/* end collapsible toolbar */}
 
         {/* Whole-Bible search results */}
         {readerSearchActive && readerSearchScope === 'bible' && (
@@ -579,6 +597,29 @@ export default function ReaderPage() {
           </div>
         )}
       </main>
+
+      {/* Wide focus mode — fixed top bar to restore toolbar */}
+      {readerWideLayout && !toolbarVisible && (
+        <div className="fixed top-0 inset-x-0 z-30 flex items-center justify-between gap-4 border-b border-slate-200/60 bg-white/80 px-4 py-2 backdrop-blur-sm">
+          <span className="text-sm font-semibold text-slate-700">
+            {readerBook?.name} {readerChapter}
+          </span>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={readerGoToPreviousChapter} disabled={readerChapter <= 1}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40">
+              ‹ Prev
+            </button>
+            <button type="button" onClick={readerGoToNextChapter} disabled={readerChapter >= readerTotalChapters}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40">
+              Next ›
+            </button>
+            <button type="button" onClick={() => setToolbarVisible(true)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+              ⚙ Tools
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Side chapter nav — fixed left/right arrows */}
       {!readerDrawMode && (
