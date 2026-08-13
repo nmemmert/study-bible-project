@@ -58,12 +58,48 @@ export default function ReaderPage() {
   const swipeTouchRef = useRef(null);
 
   const [toolbarVisible, setToolbarVisible] = useState(true);
+  const [readerPageMode, setReaderPageMode] = useState(() => localStorage.getItem('reader-page-mode') === '1');
+  const [flipPage, setFlipPage] = useState(0);
+  const [flipTotalPages, setFlipTotalPages] = useState(1);
+  const [flipPageWidth, setFlipPageWidth] = useState(0);
+  const flipContainerRef = useRef(null);
+  const flipContentRef = useRef(null);
 
   useEffect(() => {
     localStorage.setItem('reader-wide', readerWideLayout ? '1' : '0');
     // Auto-collapse toolbar when entering wide mode, restore when leaving
     setToolbarVisible(!readerWideLayout);
   }, [readerWideLayout]);
+
+  useEffect(() => {
+    localStorage.setItem('reader-page-mode', readerPageMode ? '1' : '0');
+  }, [readerPageMode]);
+
+  // Reset to page 0 when navigating chapters
+  useEffect(() => {
+    setFlipPage(0);
+  }, [readerChapter, readerBookAbbrev]);
+
+  // Track container width for CSS column sizing
+  useEffect(() => {
+    if (!readerPageMode || !flipContainerRef.current) return;
+    const el = flipContainerRef.current;
+    const update = () => setFlipPageWidth(el.clientWidth);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [readerPageMode, readerVerses]);
+
+  // Count pages after content renders
+  useEffect(() => {
+    if (!readerPageMode || !flipContentRef.current || !flipPageWidth) return;
+    const t = setTimeout(() => {
+      const sw = flipContentRef.current?.scrollWidth ?? 0;
+      setFlipTotalPages(Math.max(1, Math.round(sw / flipPageWidth)));
+    }, 120);
+    return () => clearTimeout(t);
+  }, [readerPageMode, readerVerses, readerFontSize, flipPageWidth]);
 
   // Swipe left/right to navigate chapters
   const handleTouchStart = (e) => {
@@ -78,20 +114,30 @@ export default function ReaderPage() {
     const dy = t.clientY - swipeTouchRef.current.y;
     swipeTouchRef.current = null;
     if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) * 0.8) return;
-    if (dx < 0) readerGoToNextChapter();
-    else readerGoToPreviousChapter();
+    if (dx < 0) {
+      if (readerPageMode && flipPage < flipTotalPages - 1) setFlipPage((p) => p + 1);
+      else readerGoToNextChapter();
+    } else {
+      if (readerPageMode && flipPage > 0) setFlipPage((p) => p - 1);
+      else readerGoToPreviousChapter();
+    }
   };
 
   // Arrow keys for desktop
   useEffect(() => {
     const handleKey = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
-      if (e.key === 'ArrowLeft') readerGoToPreviousChapter();
-      else if (e.key === 'ArrowRight') readerGoToNextChapter();
+      if (e.key === 'ArrowLeft') {
+        if (readerPageMode && flipPage > 0) setFlipPage((p) => p - 1);
+        else readerGoToPreviousChapter();
+      } else if (e.key === 'ArrowRight') {
+        if (readerPageMode && flipPage < flipTotalPages - 1) setFlipPage((p) => p + 1);
+        else readerGoToNextChapter();
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [readerGoToPreviousChapter, readerGoToNextChapter]);
+  }, [readerGoToPreviousChapter, readerGoToNextChapter, readerPageMode, flipPage, flipTotalPages]);
 
   // Dismiss the highlight picker when tapping outside it
   useEffect(() => {
@@ -360,6 +406,15 @@ export default function ReaderPage() {
               ✕ Hide
             </button>
           )}
+          {!readerDrawMode && (
+            <button
+              type="button"
+              onClick={() => setReaderPageMode((v) => !v)}
+              className={`rounded-lg px-3 py-1 text-xs font-semibold transition ${readerPageMode ? 'bg-slate-900 text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+            >
+              ⎕ Page
+            </button>
+          )}
         </div>
 
         </div>{/* end collapsible toolbar */}
@@ -445,128 +500,283 @@ export default function ReaderPage() {
           </div>
         </div>
 
-        {/* Verses — hidden when draw mode is active */}
-        <div className={`rounded-3xl border border-slate-200 bg-white p-6 shadow-panel${readerDrawMode ? ' hidden' : ''}`}>
-          <h2 className="mb-1 text-xl font-semibold text-slate-900">
-            {readerBook?.name} {readerChapter} <span className="text-sm font-normal text-slate-500">(BSB)</span>
-          </h2>
-          {readerInterlinear && (
-            <p className="mb-4 text-xs text-slate-400">Click a verse number to see original words &amp; pronunciation · bookmark icon to save · copy icon to copy</p>
-          )}
-          {!readerInterlinear && (
-            <p className="mb-4 text-xs text-slate-400">Hover a verse for actions</p>
-          )}
-          {readerLoading && <p className="text-sm text-slate-500">Loading…</p>}
-          {readerError && <p className="text-sm text-rose-600">{readerError}</p>}
-          {!readerLoading && !readerError && (() => {
-            const searchLower = readerSearchScope === 'chapter' ? readerSearch.trim().toLowerCase() : '';
-            const filtered = searchLower
-              ? readerVerses.filter((v) => v.text.toLowerCase().includes(searchLower))
-              : readerVerses;
-            if (searchLower && filtered.length === 0) {
-              return <p className="text-sm text-slate-500">No verses match "{readerSearch}".</p>;
-            }
-            return (
-              <div className={`leading-relaxed text-slate-800 ${readerWideLayout ? 'md:columns-2 md:gap-x-10 space-y-0' : 'space-y-3'}`}
-                   style={{ fontSize: `${readerFontSize}em` }}
-                   onPointerUp={handleSelectionEnd}>
-                {filtered.map((verse) => {
-                  const chapterInterlinear = readerInterlinear?.[String(readerChapter)];
-                  const verseWords = chapterInterlinear?.[String(verse.number)];
-                  const isOpen = readerSelectedVerse === verse.number;
-                  const verseKey = `${readerBookAbbrev}-${readerChapter}-${verse.number}`;
-                  const bmColor = readerBookmarks[verseKey];
-                  const crossRefs = readerCrossRefs?.[verse.number];
+        {/* Verses — normal scroll mode */}
+        {!readerDrawMode && !readerPageMode && (
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-panel">
+            <h2 className="mb-1 text-xl font-semibold text-slate-900">
+              {readerBook?.name} {readerChapter} <span className="text-sm font-normal text-slate-500">(BSB)</span>
+            </h2>
+            {readerInterlinear && (
+              <p className="mb-4 text-xs text-slate-400">Click a verse number to see original words &amp; pronunciation · bookmark icon to save · copy icon to copy</p>
+            )}
+            {!readerInterlinear && (
+              <p className="mb-4 text-xs text-slate-400">Hover a verse for actions</p>
+            )}
+            {readerLoading && <p className="text-sm text-slate-500">Loading…</p>}
+            {readerError && <p className="text-sm text-rose-600">{readerError}</p>}
+            {!readerLoading && !readerError && (() => {
+              const searchLower = readerSearchScope === 'chapter' ? readerSearch.trim().toLowerCase() : '';
+              const filtered = searchLower
+                ? readerVerses.filter((v) => v.text.toLowerCase().includes(searchLower))
+                : readerVerses;
+              if (searchLower && filtered.length === 0) {
+                return <p className="text-sm text-slate-500">No verses match "{readerSearch}".</p>;
+              }
+              return (
+                <div className={`leading-relaxed text-slate-800 ${readerWideLayout ? 'md:columns-2 md:gap-x-10 space-y-0' : 'space-y-3'}`}
+                     style={{ fontSize: `${readerFontSize}em` }}
+                     onPointerUp={handleSelectionEnd}>
+                  {filtered.map((verse) => {
+                    const chapterInterlinear = readerInterlinear?.[String(readerChapter)];
+                    const verseWords = chapterInterlinear?.[String(verse.number)];
+                    const isOpen = readerSelectedVerse === verse.number;
+                    const verseKey = `${readerBookAbbrev}-${readerChapter}-${verse.number}`;
+                    const bmColor = readerBookmarks[verseKey];
+                    const crossRefs = readerCrossRefs?.[verse.number];
 
-                  return (
-                    <div key={verse.number} id={`reader-verse-${verse.number}`} data-verse-num={verse.number}
-                      className="group break-inside-avoid rounded-xl transition mb-3"
-                      style={bmColor ? { backgroundColor: bmColor + '55', borderLeft: `3px solid ${bmColor}`, paddingLeft: '0.5rem' } : {}}>
-                      <div className="flex items-start gap-1">
-                        <button type="button"
-                          onClick={() => setReaderSelectedVerse(isOpen ? null : verse.number)}
-                          className={`mt-0.5 shrink-0 rounded px-1 text-xs font-bold transition ${
-                            verseWords
-                              ? isOpen ? 'bg-sky-600 text-white' : 'text-sky-600 hover:bg-sky-50'
-                              : 'cursor-default text-slate-400'
-                          }`}
-                          title={verseWords ? 'Show original words' : undefined}>
-                          {verse.number}
-                        </button>
-                        <p className="flex-1">{renderVerseText(verse.number, verse.text, searchLower)}</p>
-                        <span className="ml-1 mt-0.5 flex shrink-0 items-center gap-1">
+                    return (
+                      <div key={verse.number} id={`reader-verse-${verse.number}`} data-verse-num={verse.number}
+                        className="group break-inside-avoid rounded-xl transition mb-3"
+                        style={bmColor ? { backgroundColor: bmColor + '55', borderLeft: `3px solid ${bmColor}`, paddingLeft: '0.5rem' } : {}}>
+                        <div className="flex items-start gap-1">
                           <button type="button"
-                            onClick={() => toggleReaderBookmark(verseKey)}
-                            className={`rounded p-1 leading-none hover:bg-slate-100 ${bmColor ? 'text-amber-600' : 'text-slate-400'}`}
-                            title={bmColor ? 'Remove bookmark' : 'Bookmark this verse'}>
-                            <BookmarkIcon filled={!!bmColor} />
+                            onClick={() => setReaderSelectedVerse(isOpen ? null : verse.number)}
+                            className={`mt-0.5 shrink-0 rounded px-1 text-xs font-bold transition ${
+                              verseWords
+                                ? isOpen ? 'bg-sky-600 text-white' : 'text-sky-600 hover:bg-sky-50'
+                                : 'cursor-default text-slate-400'
+                            }`}
+                            title={verseWords ? 'Show original words' : undefined}>
+                            {verse.number}
                           </button>
-                          {bmColor && (
+                          <p className="flex-1">{renderVerseText(verse.number, verse.text, searchLower)}</p>
+                          <span className="ml-1 mt-0.5 flex shrink-0 items-center gap-1">
                             <button type="button"
-                              onClick={() => cycleBookmarkColor(verseKey)}
-                              className="rounded p-1 text-sm leading-none hover:bg-slate-100"
-                              title="Change highlight colour">
-                              🎨
+                              onClick={() => toggleReaderBookmark(verseKey)}
+                              className={`rounded p-1 leading-none hover:bg-slate-100 ${bmColor ? 'text-amber-600' : 'text-slate-400'}`}
+                              title={bmColor ? 'Remove bookmark' : 'Bookmark this verse'}>
+                              <BookmarkIcon filled={!!bmColor} />
                             </button>
-                          )}
-                          <button type="button"
-                            onClick={() => copyVerse(readerBook?.name, readerChapter, verse.number, verse.text)}
-                            className="rounded p-1 leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                            title="Copy verse">
-                            <CopyIcon />
-                          </button>
-                        </span>
-                      </div>
-
-                      {readerShowCrossRefs && crossRefs && (
-                        <div className="mt-1 ml-6 flex flex-wrap gap-1">
-                          {crossRefs.slice(0, 8).map((ref, i) => {
-                            const label = formatCrossRef(ref);
-                            return (
-                              <span key={i} className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 cursor-default" title={`Score: ${ref.score ?? '?'}`}>
-                                {label}
-                              </span>
-                            );
-                          })}
+                            {bmColor && (
+                              <button type="button"
+                                onClick={() => cycleBookmarkColor(verseKey)}
+                                className="rounded p-1 text-sm leading-none hover:bg-slate-100"
+                                title="Change highlight colour">
+                                🎨
+                              </button>
+                            )}
+                            <button type="button"
+                              onClick={() => copyVerse(readerBook?.name, readerChapter, verse.number, verse.text)}
+                              className="rounded p-1 leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                              title="Copy verse">
+                              <CopyIcon />
+                            </button>
+                          </span>
                         </div>
-                      )}
 
-                      {isOpen && verseWords && (
-                        <div className="mt-2 mb-1 ml-6 rounded-2xl border border-sky-100 bg-sky-50 p-3">
-                          <div className="flex flex-wrap gap-2">
-                            {verseWords.map((w, i) => {
-                              const isHebrew = w.s?.startsWith('H');
-                              const canSpeak = isHebrew || w.s?.startsWith('G');
+                        {readerShowCrossRefs && crossRefs && (
+                          <div className="mt-1 ml-6 flex flex-wrap gap-1">
+                            {crossRefs.slice(0, 8).map((ref, i) => {
+                              const label = formatCrossRef(ref);
                               return (
-                                <div key={i} className="rounded-xl border border-sky-200 bg-white p-2 text-center shadow-sm"
-                                  style={{ minWidth: '4.5rem', maxWidth: '9rem' }}>
-                                  <div className={`text-lg font-medium leading-tight ${isHebrew ? 'font-serif' : ''}`} dir={isHebrew ? 'rtl' : 'ltr'}>
-                                    {w.o}
-                                  </div>
-                                  <div className="mt-0.5 text-xs text-slate-500 italic">{w.t}</div>
-                                  <div className="mt-1 text-xs font-semibold text-slate-800">{w.g}</div>
-                                  {w.p && <div className="mt-0.5 text-[10px] text-slate-400 leading-tight">{w.p}</div>}
-                                  {w.s && <div className="mt-0.5 text-[10px] text-slate-400">{w.s}</div>}
-                                  {canSpeak && (
-                                    <button type="button" onClick={() => speakOriginalWord(w.o, w.s)}
-                                      className="mt-1.5 rounded-lg bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 hover:bg-sky-200 transition"
-                                      title={`Pronounce in ${isHebrew ? 'Hebrew' : 'Greek'}`}>
-                                      🔊 Speak
-                                    </button>
-                                  )}
-                                </div>
+                                <span key={i} className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 cursor-default" title={`Score: ${ref.score ?? '?'}`}>
+                                  {label}
+                                </span>
                               );
                             })}
                           </div>
+                        )}
+
+                        {isOpen && verseWords && (
+                          <div className="mt-2 mb-1 ml-6 rounded-2xl border border-sky-100 bg-sky-50 p-3">
+                            <div className="flex flex-wrap gap-2">
+                              {verseWords.map((w, i) => {
+                                const isHebrew = w.s?.startsWith('H');
+                                const canSpeak = isHebrew || w.s?.startsWith('G');
+                                return (
+                                  <div key={i} className="rounded-xl border border-sky-200 bg-white p-2 text-center shadow-sm"
+                                    style={{ minWidth: '4.5rem', maxWidth: '9rem' }}>
+                                    <div className={`text-lg font-medium leading-tight ${isHebrew ? 'font-serif' : ''}`} dir={isHebrew ? 'rtl' : 'ltr'}>
+                                      {w.o}
+                                    </div>
+                                    <div className="mt-0.5 text-xs text-slate-500 italic">{w.t}</div>
+                                    <div className="mt-1 text-xs font-semibold text-slate-800">{w.g}</div>
+                                    {w.p && <div className="mt-0.5 text-[10px] text-slate-400 leading-tight">{w.p}</div>}
+                                    {w.s && <div className="mt-0.5 text-[10px] text-slate-400">{w.s}</div>}
+                                    {canSpeak && (
+                                      <button type="button" onClick={() => speakOriginalWord(w.o, w.s)}
+                                        className="mt-1.5 rounded-lg bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 hover:bg-sky-200 transition"
+                                        title={`Pronounce in ${isHebrew ? 'Hebrew' : 'Greek'}`}>
+                                        🔊 Speak
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* Verses — page-flip mode */}
+        {!readerDrawMode && readerPageMode && (
+          <div ref={flipContainerRef}
+            className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-panel"
+            style={{ height: toolbarVisible ? 'calc(100dvh - 380px)' : 'calc(100dvh - 120px)' }}>
+            {readerLoading && <p className="p-6 text-sm text-slate-500">Loading…</p>}
+            {readerError && <p className="p-6 text-sm text-rose-600">{readerError}</p>}
+            {!readerLoading && !readerError && (() => {
+              const searchLower = readerSearchScope === 'chapter' ? readerSearch.trim().toLowerCase() : '';
+              const filtered = searchLower
+                ? readerVerses.filter((v) => v.text.toLowerCase().includes(searchLower))
+                : readerVerses;
+              if (searchLower && filtered.length === 0) {
+                return <p className="p-6 text-sm text-slate-500">No verses match "{readerSearch}".</p>;
+              }
+              return (
+                <div ref={flipContentRef}
+                  className="h-full leading-relaxed text-slate-800"
+                  style={{
+                    fontSize: `${readerFontSize}em`,
+                    columnWidth: flipPageWidth ? `${flipPageWidth}px` : '100%',
+                    columnGap: 0,
+                    paddingBottom: '3.5rem',
+                    transform: flipPageWidth ? `translateX(${-flipPage * flipPageWidth}px)` : undefined,
+                    transition: 'transform 0.3s ease',
+                  }}
+                  onPointerUp={handleSelectionEnd}>
+                  <div className="px-6 pt-6 pb-3 break-inside-avoid">
+                    <h2 className="mb-1 text-xl font-semibold text-slate-900">
+                      {readerBook?.name} {readerChapter} <span className="text-sm font-normal text-slate-500">(BSB)</span>
+                    </h2>
+                    {readerInterlinear
+                      ? <p className="text-xs text-slate-400">Click a verse number to see original words &amp; pronunciation</p>
+                      : <p className="text-xs text-slate-400">Hover a verse for actions</p>
+                    }
+                  </div>
+                  {filtered.map((verse) => {
+                    const chapterInterlinear = readerInterlinear?.[String(readerChapter)];
+                    const verseWords = chapterInterlinear?.[String(verse.number)];
+                    const isOpen = readerSelectedVerse === verse.number;
+                    const verseKey = `${readerBookAbbrev}-${readerChapter}-${verse.number}`;
+                    const bmColor = readerBookmarks[verseKey];
+                    const crossRefs = readerCrossRefs?.[verse.number];
+
+                    return (
+                      <div key={verse.number} id={`reader-verse-${verse.number}`} data-verse-num={verse.number}
+                        className="group break-inside-avoid rounded-xl transition mb-3 px-6"
+                        style={bmColor ? { backgroundColor: bmColor + '55', borderLeft: `3px solid ${bmColor}`, paddingLeft: 'calc(1.5rem + 0.5rem)' } : {}}>
+                        <div className="flex items-start gap-1">
+                          <button type="button"
+                            onClick={() => setReaderSelectedVerse(isOpen ? null : verse.number)}
+                            className={`mt-0.5 shrink-0 rounded px-1 text-xs font-bold transition ${
+                              verseWords
+                                ? isOpen ? 'bg-sky-600 text-white' : 'text-sky-600 hover:bg-sky-50'
+                                : 'cursor-default text-slate-400'
+                            }`}
+                            title={verseWords ? 'Show original words' : undefined}>
+                            {verse.number}
+                          </button>
+                          <p className="flex-1">{renderVerseText(verse.number, verse.text, searchLower)}</p>
+                          <span className="ml-1 mt-0.5 flex shrink-0 items-center gap-1">
+                            <button type="button"
+                              onClick={() => toggleReaderBookmark(verseKey)}
+                              className={`rounded p-1 leading-none hover:bg-slate-100 ${bmColor ? 'text-amber-600' : 'text-slate-400'}`}
+                              title={bmColor ? 'Remove bookmark' : 'Bookmark this verse'}>
+                              <BookmarkIcon filled={!!bmColor} />
+                            </button>
+                            {bmColor && (
+                              <button type="button"
+                                onClick={() => cycleBookmarkColor(verseKey)}
+                                className="rounded p-1 text-sm leading-none hover:bg-slate-100"
+                                title="Change highlight colour">
+                                🎨
+                              </button>
+                            )}
+                            <button type="button"
+                              onClick={() => copyVerse(readerBook?.name, readerChapter, verse.number, verse.text)}
+                              className="rounded p-1 leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                              title="Copy verse">
+                              <CopyIcon />
+                            </button>
+                          </span>
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
-        </div>
+
+                        {readerShowCrossRefs && crossRefs && (
+                          <div className="mt-1 ml-6 flex flex-wrap gap-1">
+                            {crossRefs.slice(0, 8).map((ref, i) => {
+                              const label = formatCrossRef(ref);
+                              return (
+                                <span key={i} className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 cursor-default" title={`Score: ${ref.score ?? '?'}`}>
+                                  {label}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {isOpen && verseWords && (
+                          <div className="mt-2 mb-1 ml-6 rounded-2xl border border-sky-100 bg-sky-50 p-3">
+                            <div className="flex flex-wrap gap-2">
+                              {verseWords.map((w, i) => {
+                                const isHebrew = w.s?.startsWith('H');
+                                const canSpeak = isHebrew || w.s?.startsWith('G');
+                                return (
+                                  <div key={i} className="rounded-xl border border-sky-200 bg-white p-2 text-center shadow-sm"
+                                    style={{ minWidth: '4.5rem', maxWidth: '9rem' }}>
+                                    <div className={`text-lg font-medium leading-tight ${isHebrew ? 'font-serif' : ''}`} dir={isHebrew ? 'rtl' : 'ltr'}>
+                                      {w.o}
+                                    </div>
+                                    <div className="mt-0.5 text-xs text-slate-500 italic">{w.t}</div>
+                                    <div className="mt-1 text-xs font-semibold text-slate-800">{w.g}</div>
+                                    {w.p && <div className="mt-0.5 text-[10px] text-slate-400 leading-tight">{w.p}</div>}
+                                    {w.s && <div className="mt-0.5 text-[10px] text-slate-400">{w.s}</div>}
+                                    {canSpeak && (
+                                      <button type="button" onClick={() => speakOriginalWord(w.o, w.s)}
+                                        className="mt-1.5 rounded-lg bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 hover:bg-sky-200 transition"
+                                        title={`Pronounce in ${isHebrew ? 'Hebrew' : 'Greek'}`}>
+                                        🔊 Speak
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+            {/* Page navigation bar */}
+            <div className="absolute bottom-0 inset-x-0 flex items-center justify-between border-t border-slate-100 bg-white/95 px-6 py-2.5 backdrop-blur-sm">
+              <button
+                onClick={() => flipPage > 0 ? setFlipPage((p) => p - 1) : readerGoToPreviousChapter()}
+                disabled={flipPage === 0 && readerChapter <= 1}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-1.5 text-sm font-semibold text-slate-600 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                {flipPage === 0 ? '← Prev chapter' : '← Back'}
+              </button>
+              <span className="text-xs text-slate-400">
+                {readerBook?.name} {readerChapter} · {flipPage + 1} / {flipTotalPages}
+              </span>
+              <button
+                onClick={() => flipPage < flipTotalPages - 1 ? setFlipPage((p) => p + 1) : readerGoToNextChapter()}
+                disabled={flipPage === flipTotalPages - 1 && readerChapter >= readerTotalChapters}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-1.5 text-sm font-semibold text-slate-600 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                {flipPage === flipTotalPages - 1 ? 'Next chapter →' : 'Next →'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Draw mode — Bible text on left, notebook canvas on right */}
         {readerDrawMode && (
