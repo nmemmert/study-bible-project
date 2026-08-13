@@ -1073,6 +1073,56 @@ export function CrossRefChip({ label, onRemove, loadVerseText }) {
 }
 
 // ---------------------------------------------------------------------------
+// IndexedDB helpers for whole-Bible search cache
+// ---------------------------------------------------------------------------
+
+const BIBLE_IDB_NAME = 'study-app-bible-index';
+const BIBLE_IDB_STORE = 'bible-index';
+const BIBLE_IDB_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function openBibleIndexDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(BIBLE_IDB_NAME, 1);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(BIBLE_IDB_STORE)) {
+        db.createObjectStore(BIBLE_IDB_STORE, { keyPath: 'id' });
+      }
+    };
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function getBibleIndexFromIDB(translation) {
+  try {
+    const db = await openBibleIndexDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(BIBLE_IDB_STORE, 'readonly');
+      const req = tx.objectStore(BIBLE_IDB_STORE).get(translation);
+      req.onsuccess = () => resolve(req.result ?? null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function saveBibleIndexToIDB(translation, flat) {
+  try {
+    const db = await openBibleIndexDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(BIBLE_IDB_STORE, 'readwrite');
+      const req = tx.objectStore(BIBLE_IDB_STORE).put({ id: translation, flat, cachedAt: Date.now() });
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    // Non-fatal; in-memory cache still works for this session
+  }
+}
+
+// ---------------------------------------------------------------------------
 // App component
 // ---------------------------------------------------------------------------
 
@@ -1388,6 +1438,14 @@ const App = () => {
     }
     setBibleIndexStatus('loading');
     try {
+      // Check IndexedDB cache before hitting the network (~7 MB fetch)
+      const cached = await getBibleIndexFromIDB('BSB');
+      if (cached?.flat && Date.now() - cached.cachedAt < BIBLE_IDB_TTL) {
+        _bibleIndexCacheRef.current.BSB = cached.flat;
+        setBibleIndexStatus('ready');
+        return;
+      }
+
       const res = await fetch('https://bible.helloao.org/api/BSB/complete.json');
       if (!res.ok) throw new Error('Unable to load the full Bible for search.');
       const data = await res.json();
@@ -1404,6 +1462,8 @@ const App = () => {
       }
       _bibleIndexCacheRef.current.BSB = flat;
       setBibleIndexStatus('ready');
+      // Persist for future visits — non-blocking
+      saveBibleIndexToIDB('BSB', flat);
     } catch {
       setBibleIndexStatus('error');
     }

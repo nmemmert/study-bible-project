@@ -22,10 +22,8 @@ _Refreshed 2026-07-06 (multiple passes) — items already shipped have been remo
 ## UX / UI
 
 ### Study Page
-- **Sticky bottom nav** — top Prev/Next chunk nav shipped (commit `103e20c`); a matching sticky bottom bar for long chunks would avoid scroll-back
 
 ### Reader
-- **Whole-Bible search index isn't persisted** — the ~7MB `complete.json` fetch is cached in-memory only for the session; a page reload re-downloads it. Worth persisting to IndexedDB (not localStorage — too small) if this gets used often
 - **Bookmark color picker is still an emoji button** (🎨) — the bookmark/copy icons became proper SVGs, but color-cycling didn't get the same treatment
 
 ### Home Page

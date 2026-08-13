@@ -76,7 +76,7 @@ export default function StudyPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-4 sm:py-8 sm:px-6 lg:px-8">
+      <main className="mx-auto max-w-7xl px-4 py-4 pb-20 sm:py-8 sm:pb-20 sm:px-6 lg:px-8">
         <section className={`grid min-w-0 gap-6 ${studyLayout === 'split' ? '' : 'lg:grid-cols-[260px_1fr]'}`}>
           {/* Sidebar */}
           <aside className={`min-w-0 rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-panel max-sm:hidden ${studyLayout === 'split' ? 'hidden' : ''}`}>
@@ -902,28 +902,6 @@ export default function StudyPage() {
                 </div>
               )}
 
-                {/* Prev / Next — sticky */}
-                <div className="sticky bottom-0 z-10 -mx-4 sm:-mx-6 mt-6 flex items-center justify-between gap-3 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-sm sm:px-6">
-                  <button
-                    type="button"
-                    onClick={goToPreviousChunk}
-                    disabled={selectedChunkGlobalIndex <= 0}
-                    className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    ← Previous Chunk
-                  </button>
-                  <span className="text-xs text-slate-400">
-                    {selectedChunkGlobalIndex + 1} / {allChunks.length}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={goToNextChunk}
-                    disabled={selectedChunkGlobalIndex >= allChunks.length - 1}
-                    className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    Next Chunk →
-                  </button>
-                </div>
               </div>
             ) : (
               <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-8 text-center text-slate-500">
@@ -934,6 +912,33 @@ export default function StudyPage() {
           </div>
         </section>
       </main>
+
+      {/* Prev / Next — fixed bottom bar, visible while scrolling long chunks */}
+      {selectedChunk && studyLayout !== 'annotate' && (
+        <div className="fixed bottom-0 inset-x-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur-sm">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
+            <button
+              type="button"
+              onClick={goToPreviousChunk}
+              disabled={selectedChunkGlobalIndex <= 0}
+              className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              ← Previous Chunk
+            </button>
+            <span className="text-xs text-slate-400">
+              {selectedChunkGlobalIndex + 1} / {allChunks.length}
+            </span>
+            <button
+              type="button"
+              onClick={goToNextChunk}
+              disabled={selectedChunkGlobalIndex >= allChunks.length - 1}
+              className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Next Chunk →
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Greek word picker modal */}
       {suggestModal && createPortal(
