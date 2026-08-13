@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext.js';
 import { bookOptions, BookmarkIcon, CopyIcon } from '../App.jsx';
 import DrawCanvas from './DrawCanvas.jsx';
@@ -52,8 +52,42 @@ export default function ReaderPage() {
 
   const readerBook = bookOptions.find((b) => b.abbrev === readerBookAbbrev);
   const [readerDrawMode, setReaderDrawMode] = useState(false);
+  const [readerWideLayout, setReaderWideLayout] = useState(() => localStorage.getItem('reader-wide') === '1');
   const readerPageInkStrokes = readerInkByPage?.[`${readerBookAbbrev}_${readerChapter}`] ?? [];
   const [selectionPicker, setSelectionPicker] = useState(null);
+  const swipeTouchRef = useRef(null);
+
+  useEffect(() => {
+    localStorage.setItem('reader-wide', readerWideLayout ? '1' : '0');
+  }, [readerWideLayout]);
+
+  // Swipe left/right to navigate chapters
+  const handleTouchStart = (e) => {
+    if (readerDrawMode) return;
+    const t = e.changedTouches[0];
+    swipeTouchRef.current = { x: t.clientX, y: t.clientY };
+  };
+  const handleTouchEnd = (e) => {
+    if (readerDrawMode || !swipeTouchRef.current) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - swipeTouchRef.current.x;
+    const dy = t.clientY - swipeTouchRef.current.y;
+    swipeTouchRef.current = null;
+    if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) * 0.8) return;
+    if (dx < 0) readerGoToNextChapter();
+    else readerGoToPreviousChapter();
+  };
+
+  // Arrow keys for desktop
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+      if (e.key === 'ArrowLeft') readerGoToPreviousChapter();
+      else if (e.key === 'ArrowRight') readerGoToNextChapter();
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [readerGoToPreviousChapter, readerGoToNextChapter]);
 
   // Dismiss the highlight picker when tapping outside it
   useEffect(() => {
@@ -167,7 +201,11 @@ export default function ReaderPage() {
           </div>
         </div>
       </header>
-      <main className={`mx-auto px-4 py-8 sm:px-6 lg:px-8 ${readerDrawMode ? 'max-w-full' : 'max-w-3xl'}`}>
+      <main
+        className={`mx-auto px-4 py-8 sm:px-6 lg:px-8 ${readerDrawMode ? 'max-w-full' : readerWideLayout ? 'max-w-7xl' : 'max-w-3xl'}`}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         {/* Navigation + tools bar */}
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-panel">
           <label className="text-sm text-slate-600">
@@ -299,6 +337,13 @@ export default function ReaderPage() {
           >
             ✏ Draw
           </button>
+          <button
+            type="button"
+            onClick={() => setReaderWideLayout((v) => !v)}
+            className={`rounded-lg px-3 py-1 text-xs font-semibold transition ${readerWideLayout ? 'bg-slate-900 text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+          >
+            ⊞ Wide
+          </button>
         </div>
 
         {/* Whole-Bible search results */}
@@ -404,7 +449,8 @@ export default function ReaderPage() {
               return <p className="text-sm text-slate-500">No verses match "{readerSearch}".</p>;
             }
             return (
-              <div className="space-y-3 leading-relaxed text-slate-800" style={{ fontSize: `${readerFontSize}em` }}
+              <div className={`leading-relaxed text-slate-800 ${readerWideLayout ? 'md:columns-2 md:gap-x-10 space-y-0' : 'space-y-3'}`}
+                   style={{ fontSize: `${readerFontSize}em` }}
                    onPointerUp={handleSelectionEnd}>
                 {filtered.map((verse) => {
                   const chapterInterlinear = readerInterlinear?.[String(readerChapter)];
@@ -416,7 +462,7 @@ export default function ReaderPage() {
 
                   return (
                     <div key={verse.number} id={`reader-verse-${verse.number}`} data-verse-num={verse.number}
-                      className="group rounded-xl transition"
+                      className="group break-inside-avoid rounded-xl transition mb-3"
                       style={bmColor ? { backgroundColor: bmColor + '55', borderLeft: `3px solid ${bmColor}`, paddingLeft: '0.5rem' } : {}}>
                       <div className="flex items-start gap-1">
                         <button type="button"
@@ -533,6 +579,30 @@ export default function ReaderPage() {
           </div>
         )}
       </main>
+
+      {/* Side chapter nav — fixed left/right arrows */}
+      {!readerDrawMode && (
+        <>
+          <button
+            type="button"
+            onClick={readerGoToPreviousChapter}
+            disabled={readerChapter <= 1}
+            aria-label="Previous chapter"
+            className="fixed left-3 top-1/2 -translate-y-1/2 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white/80 text-slate-500 shadow-md backdrop-blur-sm transition hover:bg-white hover:text-slate-900 disabled:opacity-0 disabled:pointer-events-none"
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            onClick={readerGoToNextChapter}
+            disabled={readerChapter >= readerTotalChapters}
+            aria-label="Next chapter"
+            className="fixed right-3 top-1/2 -translate-y-1/2 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white/80 text-slate-500 shadow-md backdrop-blur-sm transition hover:bg-white hover:text-slate-900 disabled:opacity-0 disabled:pointer-events-none"
+          >
+            ›
+          </button>
+        </>
+      )}
 
       {/* Highlight color picker — appears above text selection */}
       {selectionPicker && (
