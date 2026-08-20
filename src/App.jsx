@@ -71,6 +71,18 @@ export const STUDY_TABS = [
   { id: 'script', label: 'Script' },
 ];
 
+export const CHAPTER_COUNTS = {
+  GEN:50,EXO:40,LEV:27,NUM:36,DEU:34,JOS:24,JDG:21,RUT:4,
+  '1SA':31,'2SA':24,'1KI':22,'2KI':25,'1CH':29,'2CH':36,
+  EZR:10,NEH:13,EST:10,JOB:42,PSA:150,PRO:31,ECC:12,SNG:8,
+  ISA:66,JER:52,LAM:5,EZK:48,DAN:12,HOS:14,JOL:3,AMO:9,
+  OBA:1,JON:4,MIC:7,NAM:3,HAB:3,ZEP:3,HAG:2,ZEC:14,MAL:4,
+  MAT:28,MRK:16,LUK:24,JHN:21,ACT:28,ROM:16,'1CO':16,'2CO':13,
+  GAL:6,EPH:6,PHP:4,COL:4,'1TH':5,'2TH':3,'1TI':6,'2TI':4,
+  TIT:3,PHM:1,HEB:13,JAS:5,'1PE':5,'2PE':3,'1JN':5,'2JN':1,
+  '3JN':1,JUD:1,REV:22,
+};
+
 export const bookOptions = [
   { name: 'Genesis', abbrev: 'GEN' },
   { name: 'Exodus', abbrev: 'EXO' },
@@ -1207,6 +1219,11 @@ const App = () => {
   const [homeSearch, setHomeSearch] = useState('');
   const [homeSort, setHomeSort] = useState('recent'); // 'recent' | 'title' | 'passage'
   const [homeTagFilter, setHomeTagFilter] = useState('');
+  const [homeFullTextResults, setHomeFullTextResults] = useState(null); // null=idle, []=no match, [...]= results
+  const fullTextTimerRef = useRef(null);
+  const [readingPlan, setReadingPlan] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('readingPlan') || 'null'); } catch { return null; }
+  });
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
   const [importBookAbbrev, setImportBookAbbrev] = useState(bookOptions[0].abbrev);
@@ -1390,6 +1407,39 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem('activeStudyTab', activeStudyTab);
   }, [activeStudyTab]);
+
+  // Full-text search across all project notes (debounced, synchronous localStorage read)
+  useEffect(() => {
+    clearTimeout(fullTextTimerRef.current);
+    const q = homeSearch.trim().toLowerCase();
+    if (q.length < 3) { setHomeFullTextResults(null); return; }
+    fullTextTimerRef.current = window.setTimeout(() => {
+      const index = loadProjectIndex();
+      const results = [];
+      for (const entry of index) {
+        const proj = loadProjectById(entry.id);
+        if (!proj) continue;
+        const matches = [];
+        for (const [chIdx, ch] of (proj.chapters ?? []).entries()) {
+          for (const chunk of (ch.chunks ?? [])) {
+            for (const field of ['observation', 'interpretation', 'application', 'generalNotes', 'finalScript']) {
+              const text = (chunk[field] ?? '').toLowerCase();
+              if (!text.includes(q)) continue;
+              const idx = text.indexOf(q);
+              const raw = chunk[field] ?? '';
+              const start = Math.max(0, idx - 40);
+              const snippet = (start > 0 ? '…' : '') + raw.slice(start, idx + q.length + 60) + (idx + q.length + 60 < raw.length ? '…' : '');
+              matches.push({ chunkId: chunk.id, ref: formatChunkReference(proj, chIdx, chunk, '–'), field, snippet });
+              break; // one match per chunk
+            }
+          }
+        }
+        if (matches.length > 0) results.push({ projectId: entry.id, projectTitle: entry.title, matches });
+      }
+      setHomeFullTextResults(results);
+    }, 300);
+  }, [homeSearch]);
+
   const [verseSearch, setVerseSearch] = useState('');
   const [collapsedSections, setCollapsedSections] = useState({});
   const [commentarySource, setCommentarySource] = useState('matthew-henry');
@@ -3328,8 +3378,9 @@ const App = () => {
     if (!project) return;
     const prompt = buildClaudePrompt(project);
     navigator.clipboard.writeText(prompt).then(() => {
-      setSaveStatus('Copied for Claude!');
-      window.setTimeout(() => setSaveStatus(''), 2000);
+      setSaveStatus('Copied! Opening Claude…');
+      window.setTimeout(() => setSaveStatus(''), 3000);
+      window.open('https://claude.ai/new', '_blank', 'noopener,noreferrer');
     });
   };
 
@@ -3337,9 +3388,34 @@ const App = () => {
     if (!project) return;
     const prompt = buildPodcastPrompt(project, authUser?.podcastName);
     navigator.clipboard.writeText(prompt).then(() => {
-      setSaveStatus('Copied podcast prep!');
-      window.setTimeout(() => setSaveStatus(''), 2000);
+      setSaveStatus('Copied! Opening Claude…');
+      window.setTimeout(() => setSaveStatus(''), 3000);
+      window.open('https://claude.ai/new', '_blank', 'noopener,noreferrer');
     });
+  };
+
+  const createReadingPlan = (bookAbbrev, bookName, weeks) => {
+    const totalChapters = CHAPTER_COUNTS[bookAbbrev] ?? 1;
+    const plan = { bookAbbrev, bookName, totalChapters, startDate: Date.now(), targetDate: Date.now() + weeks * 7 * 24 * 60 * 60 * 1000, chaptersRead: [] };
+    setReadingPlan(plan);
+    try { localStorage.setItem('readingPlan', JSON.stringify(plan)); } catch {}
+  };
+
+  const markChapterRead = (chapter) => {
+    setReadingPlan((prev) => {
+      if (!prev) return prev;
+      const chaptersRead = prev.chaptersRead.includes(chapter)
+        ? prev.chaptersRead.filter((c) => c !== chapter)
+        : [...prev.chaptersRead, chapter].sort((a, b) => a - b);
+      const next = { ...prev, chaptersRead };
+      try { localStorage.setItem('readingPlan', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const clearReadingPlan = () => {
+    setReadingPlan(null);
+    try { localStorage.removeItem('readingPlan'); } catch {}
   };
 
   const copyPronunciationGuide = () => {
@@ -3629,17 +3705,18 @@ const deleteProject = (id) => {
             onClick={copyForClaude}
             disabled={allChunks.length === 0}
             className="rounded-md bg-violet-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:bg-slate-500"
+            title="Copies your study notes as a Claude prompt, then opens claude.ai so you can paste and go"
           >
-            <span className="hidden sm:inline">Prepare for </span>Claude
+            <span className="hidden sm:inline">Study Guide → </span>Claude ↗
           </button>
           <button
             type="button"
             onClick={copyForPodcast}
             disabled={allChunks.length === 0}
-            title="Copy a prompt for Claude to write a full spoken-word episode script from your notes, ready to record. Optional — only useful if you're producing a podcast or similar audio series. Set your show name in Account Settings first."
+            title="Copies a podcast script prompt for Claude, then opens claude.ai — set your show name in Account Settings first"
             className="rounded-md bg-fuchsia-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-fuchsia-400 disabled:cursor-not-allowed disabled:bg-slate-500"
           >
-            🎙<span className="hidden sm:inline"> Prepare for Podcast</span>
+            🎙<span className="hidden sm:inline"> Podcast → Claude ↗</span>
           </button>
           <button
             type="button"
@@ -3808,6 +3885,11 @@ const deleteProject = (id) => {
     homeSearch, setHomeSearch,
     homeSort, setHomeSort,
     homeTagFilter, setHomeTagFilter,
+    homeFullTextResults,
+    readingPlan,
+    createReadingPlan,
+    markChapterRead,
+    clearReadingPlan,
     renamingId, setRenamingId,
     renameValue, setRenameValue,
     openBibleReader,

@@ -39,6 +39,7 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
   const { realStrokes } = extractMeta(strokes);
 
   const canvasRef = useRef(null);
+  const hoverRef = useRef(null);
   const activeStrokeRef = useRef([]);
   const isDrawingRef = useRef(false);
 
@@ -79,14 +80,56 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
     return () => obs.disconnect();
   }, [render]);
 
+  // Hover cursor — reads refs so no stale-closure risk; no React re-renders on each move
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    function onMove(e) {
+      if (e.pointerType !== 'pen') return;
+      const el = hoverRef.current;
+      if (!el) return;
+      if (e.pressure > 0) { el.style.display = 'none'; return; }
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const sizePx = Math.max(6, drawSizeRef.current * rect.height);
+      const tool = drawToolRef.current;
+      const color = tool === 'eraser' ? '#94a3b8' : drawColorRef.current;
+      el.style.display = 'block';
+      el.style.width = `${sizePx}px`;
+      el.style.height = `${sizePx}px`;
+      el.style.left = `${x}px`;
+      el.style.top = `${y}px`;
+      el.style.borderColor = color;
+      el.style.borderRadius = tool === 'eraser' ? '2px' : '50%';
+    }
+
+    function onLeave() {
+      if (hoverRef.current) hoverRef.current.style.display = 'none';
+    }
+
+    canvas.addEventListener('pointermove', onMove);
+    canvas.addEventListener('pointerleave', onLeave);
+    return () => {
+      canvas.removeEventListener('pointermove', onMove);
+      canvas.removeEventListener('pointerleave', onLeave);
+    };
+  }, []);
+
   const getPoint = useCallback((e) => {
     const canvas = canvasRef.current;
-    if (!canvas) return [0, 0, 0.5];
+    if (!canvas) return [0, 0, 0.5, 0];
     const rect = canvas.getBoundingClientRect();
+    // tiltX/tiltY range ±90°; normalize to 0-1 where 1 = fully flat (60° threshold)
+    const tilt = e.pointerType === 'pen'
+      ? Math.min(Math.hypot(e.tiltX || 0, e.tiltY || 0) / 60, 1)
+      : 0;
     return [
       (e.clientX - rect.left) / rect.width,
       (e.clientY - rect.top) / rect.height,
       e.pressure ?? 0.5,
+      tilt,
     ];
   }, []);
 
@@ -133,17 +176,30 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
     if (typeof Touch !== 'undefined' && 'touchType' in Touch.prototype) {
       function pointFromTouch(t) {
         const rect = canvas.getBoundingClientRect();
+        // radiusX grows as the pencil tilts flat; ~10px radius ≈ fully tilted
+        const tilt = Math.min((t.radiusX || 0) / 10, 1);
         return [
           (t.clientX - rect.left) / rect.width,
           (t.clientY - rect.top) / rect.height,
           t.force ?? 0.5,
+          tilt,
         ];
       }
 
       function tStart(e) {
+        // Two-finger tap (both non-stylus) = undo last stroke
+        if (e.touches.length === 2 && Array.from(e.touches).every((t) => t.touchType !== 'stylus')) {
+          e.preventDefault();
+          if (strokesRef.current.length > 0) {
+            onStrokesChangeRef.current(packStrokes(strokesRef.current.slice(0, -1), pageCountRef.current));
+            render();
+          }
+          return;
+        }
         for (const t of e.changedTouches) {
           if (t.touchType !== 'stylus') continue;
           e.preventDefault();
+          if (hoverRef.current) hoverRef.current.style.display = 'none';
           isDrawingRef.current = true;
           activeStrokeRef.current = [pointFromTouch(t)];
           render();
@@ -351,6 +407,20 @@ export default function DrawCanvas({ strokes, onStrokesChange, onDone, headerCon
         {!headerContent && (
           <div className="absolute bottom-0 left-10 top-0 w-px bg-rose-200" style={{ zIndex: 1 }} />
         )}
+        {/* Hover cursor — positioned by the pointermove handler, never by React */}
+        <div
+          ref={hoverRef}
+          style={{
+            display: 'none',
+            position: 'absolute',
+            pointerEvents: 'none',
+            zIndex: 3,
+            border: '1.5px solid',
+            boxSizing: 'border-box',
+            transform: 'translate(-50%, -50%)',
+            opacity: 0.7,
+          }}
+        />
         {/* Single canvas spanning the entire area (scripture + notebook) */}
         <canvas
           ref={canvasRef}

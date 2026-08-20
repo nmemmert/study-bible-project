@@ -33,14 +33,22 @@ export function renderInkToCanvas(
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
 
-  for (const s of strokes) {
-    const pts = s.points.map(([x, y, p]) => [x * w, y * h, p]);
-    const outline = getStroke(pts, {
-      size: s.size * h,
-      thinning: s.tool === 'highlighter' ? 0 : 0.5,
+  function strokeOpts(tool, baseSize, points) {
+    const avgTilt = points.length
+      ? points.reduce((s, p) => s + (p[3] ?? 0), 0) / points.length
+      : 0;
+    return {
+      // Tilt widens the stroke and reduces pressure-thinning (pencil-shading feel)
+      size: tool === 'pen' ? baseSize * (1 + avgTilt * 2.5) : baseSize,
+      thinning: tool === 'highlighter' ? 0 : 0.5 * (1 - (tool === 'pen' ? avgTilt * 0.8 : 0)),
       smoothing: 0.5,
       streamline: 0.4,
-    });
+    };
+  }
+
+  for (const s of strokes) {
+    const pts = s.points.map(([x, y, p]) => [x * w, y * h, p]);
+    const outline = getStroke(pts, strokeOpts(s.tool, s.size * h, s.points));
     ctx.globalAlpha = s.tool === 'highlighter' ? 0.35 : 1;
     ctx.fillStyle = s.color;
     ctx.fill(new Path2D(pathFromStroke(outline)));
@@ -48,12 +56,7 @@ export function renderInkToCanvas(
 
   if (activeStroke.length > 1 && activeTool !== 'eraser') {
     const pts = activeStroke.map(([x, y, p]) => [x * w, y * h, p]);
-    const outline = getStroke(pts, {
-      size: activeSize * h,
-      thinning: activeTool === 'highlighter' ? 0 : 0.5,
-      smoothing: 0.5,
-      streamline: 0.4,
-    });
+    const outline = getStroke(pts, strokeOpts(activeTool, activeSize * h, activeStroke));
     ctx.globalAlpha = activeTool === 'highlighter' ? 0.35 : 1;
     ctx.fillStyle = activeColor;
     ctx.fill(new Path2D(pathFromStroke(outline)));

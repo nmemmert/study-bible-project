@@ -515,6 +515,29 @@ export default function StudyPage() {
                   </datalist>
                 </div>
 
+                {/* Inline ink notes — collapsible, always available without switching to annotate mode */}
+                <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'notes' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' && activeStudyTab !== 'notes' ? 'hidden' : ''}`}>
+                  <button
+                    type="button"
+                    onClick={() => setCollapsedSections((c) => ({ ...c, inlineInk: !c.inlineInk }))}
+                    className="flex w-full items-center justify-between gap-2 text-left"
+                  >
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-900">Ink Notes</h3>
+                      <p className="text-xs text-slate-500">Draw diagrams or handwritten notes for this chunk.</p>
+                    </div>
+                    <span className="text-slate-400">{collapsedSections.inlineInk ? '▸' : '▾'}</span>
+                  </button>
+                  {!collapsedSections.inlineInk && (
+                    <div className="mt-4">
+                      <DrawCanvas
+                        strokes={selectedChunk.inkStrokes ?? []}
+                        onStrokesChange={(s) => updateChunk(selectedChunk.id, { inkStrokes: s })}
+                      />
+                    </div>
+                  )}
+                </div>
+
                 {/* Cross-references */}
                 <div className={`rounded-3xl border border-slate-200 bg-slate-50 p-5 ${mobileStudyTab !== 'crossRefs' ? 'max-sm:hidden' : ''} ${studyLayout === 'split' && activeStudyTab !== 'crossRefs' ? 'hidden' : ''}`}>
                   <button

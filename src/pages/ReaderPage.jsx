@@ -48,6 +48,8 @@ export default function ReaderPage() {
     readerTextHighlights,
     addTextHighlight,
     removeTextHighlight,
+    readingPlan,
+    markChapterRead,
   } = useApp();
 
   const readerBook = bookOptions.find((b) => b.abbrev === readerBookAbbrev);
@@ -286,6 +288,19 @@ export default function ReaderPage() {
             </select>
           </label>
           <div className="ml-auto flex items-center gap-2">
+            {readingPlan && readingPlan.bookAbbrev === readerBookAbbrev && (() => {
+              const done = readingPlan.chaptersRead.includes(readerChapter);
+              return (
+                <button
+                  type="button"
+                  onClick={() => markChapterRead(readerChapter)}
+                  className={`rounded-xl px-3 py-1.5 text-sm font-semibold transition ${done ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'border border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50'}`}
+                  title={done ? 'Click to unmark' : 'Mark this chapter as read in your reading plan'}
+                >
+                  {done ? '✓ Read' : 'Mark as read'}
+                </button>
+              );
+            })()}
             <button type="button" onClick={readerGoToPreviousChapter} disabled={readerChapter <= 1}
               className="rounded-xl border border-slate-300 bg-white px-4 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
               ‹ Prev
