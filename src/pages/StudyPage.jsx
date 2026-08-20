@@ -533,6 +533,24 @@ export default function StudyPage() {
                       <DrawCanvas
                         strokes={selectedChunk.inkStrokes ?? []}
                         onStrokesChange={(s) => updateChunk(selectedChunk.id, { inkStrokes: s })}
+                        headerContent={
+                          selectedChunkVerses.length > 0 && (
+                            <>
+                              <div className="mb-2 flex items-center justify-between gap-2">
+                                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Scripture · draw on me</span>
+                                <span className="rounded-full bg-slate-200 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
+                                  {formatChunkReference(project, selectedChunkChapterIndex, selectedChunk, '–')}
+                                </span>
+                              </div>
+                              {selectedChunkVerses.map((verse) => (
+                                <p key={`${verse.chapter}-${verse.number}`} className="mb-1">
+                                  <span className="font-semibold text-slate-900">{verse.chapter}:{verse.number}.</span>{' '}
+                                  {verse.text}
+                                </p>
+                              ))}
+                            </>
+                          )
+                        }
                       />
                     </div>
                   )}
